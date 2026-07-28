@@ -10,6 +10,15 @@ from ninja.errors import HttpError
 from modules.datasets.models import VectorLayer
 from modules.resources.models import Visibility
 
+from .queries import (
+    FeatureNotFound,
+    FeatureQueryUnavailable,
+    FeatureQueryValidationError,
+    get_layer_feature,
+    identify_layer_features,
+    list_layer_features,
+    parse_bbox,
+)
 from .selectors import vector_layer_accessible_to
 from .services import (
     MartinSourceNotReady,
@@ -66,6 +75,114 @@ def get_quality_report(request, layer_id: UUID):
     )
     _apply_cache_policy(response, layer)
     return response
+
+
+@router.get("/{layer_id}/features")
+def list_features(
+    request,
+    layer_id: UUID,
+    limit: int = 100,
+    cursor: int | None = None,
+    bbox: str | None = None,
+    fields: str | None = None,
+    include_geometry: bool = True,
+):
+    layer = _get_layer(request, layer_id)
+    try:
+        page = list_layer_features(
+            layer=layer,
+            limit=limit,
+            cursor=cursor,
+            bbox=parse_bbox(bbox),
+            requested_fields=fields,
+            include_geometry=include_geometry,
+        )
+    except FeatureQueryValidationError as exc:
+        raise HttpError(400, str(exc)) from exc
+    except FeatureQueryUnavailable as exc:
+        raise HttpError(409, str(exc)) from exc
+
+    return _feature_response(
+        {
+            "type": "FeatureCollection",
+            "features": page.features,
+            "next_cursor": page.next_cursor,
+            "limit": page.limit,
+            "selected_fields": page.selected_fields,
+            "layer_id": str(layer.id),
+            "dataset_version_id": str(layer.version_id),
+        },
+        layer,
+    )
+
+
+@router.get("/{layer_id}/features/{feature_id}")
+def get_feature(
+    request,
+    layer_id: UUID,
+    feature_id: int,
+    fields: str | None = None,
+    include_geometry: bool = True,
+):
+    layer = _get_layer(request, layer_id)
+    try:
+        feature = get_layer_feature(
+            layer=layer,
+            feature_id=feature_id,
+            requested_fields=fields,
+            include_geometry=include_geometry,
+        )
+    except FeatureQueryValidationError as exc:
+        raise HttpError(400, str(exc)) from exc
+    except FeatureQueryUnavailable as exc:
+        raise HttpError(409, str(exc)) from exc
+    except FeatureNotFound as exc:
+        raise HttpError(404, str(exc)) from exc
+
+    feature["geoportalx"] = {
+        "layer_id": str(layer.id),
+        "dataset_version_id": str(layer.version_id),
+    }
+    return _feature_response(feature, layer)
+
+
+@router.get("/{layer_id}/identify")
+def identify_features(
+    request,
+    layer_id: UUID,
+    longitude: float,
+    latitude: float,
+    tolerance_m: float = 25.0,
+    limit: int = 5,
+    fields: str | None = None,
+):
+    layer = _get_layer(request, layer_id)
+    try:
+        result = identify_layer_features(
+            layer=layer,
+            longitude=longitude,
+            latitude=latitude,
+            tolerance_m=tolerance_m,
+            limit=limit,
+            requested_fields=fields,
+        )
+    except FeatureQueryValidationError as exc:
+        raise HttpError(400, str(exc)) from exc
+    except FeatureQueryUnavailable as exc:
+        raise HttpError(409, str(exc)) from exc
+
+    return _feature_response(
+        {
+            "type": "FeatureCollection",
+            "features": result.features,
+            "selected_fields": result.selected_fields,
+            "tolerance_m": result.tolerance_m,
+            "query_point": [longitude, latitude],
+            "layer_id": str(layer.id),
+            "dataset_version_id": str(layer.version_id),
+        },
+        layer,
+    )
 
 
 @router.get("/{layer_id}/tiles/{z}/{x}/{y}")
@@ -175,6 +292,18 @@ def _validate_tile_coordinates(layer: VectorLayer, *, z: int, x: int, y: int) ->
     tile_count = 1 << z
     if x < 0 or y < 0 or x >= tile_count or y >= tile_count:
         raise HttpError(404, "Tile coordinates are outside the XYZ matrix")
+
+
+def _feature_response(payload: dict[str, Any], layer: VectorLayer) -> JsonResponse:
+    response = JsonResponse(payload)
+    maximum = max(int(settings.VECTOR_FEATURE_MAX_RESPONSE_BYTES), 1)
+    if len(response.content) > maximum:
+        raise HttpError(
+            413,
+            f"Feature response exceeded the configured {maximum}-byte limit",
+        )
+    _apply_cache_policy(response, layer)
+    return response
 
 
 def _apply_cache_policy(response: HttpResponse, layer: VectorLayer) -> None:
