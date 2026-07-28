@@ -97,7 +97,7 @@ def configure_incomplete_upload_lifecycle() -> None:
                     {
                         "ID": "geoportalx-abort-incomplete-multipart-uploads",
                         "Status": "Enabled",
-                        "Filter": {"Prefix": "uploads/"},
+                        "Prefix": "uploads/",
                         "AbortIncompleteMultipartUpload": {
                             "DaysAfterInitiation": days,
                         },
