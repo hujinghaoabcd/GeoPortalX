@@ -49,7 +49,7 @@ Status: implementation ready for review
 - [x] Asynchronous GeoJSON/CSV/GeoPackage export and signed delivery
 - [x] Persistent simple, categorical and graduated default vector styles
 - [x] Interactive MapLibre preview panel, legend, identify popup and style controls
-- [ ] Dataset version replacement and rollback
+- [x] Dataset version replacement, atomic activation and rollback
 - [ ] Import reconciliation and orphan-table cleanup
 - [ ] Full multi-dataset browser and layer switching
 
