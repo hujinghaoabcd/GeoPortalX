@@ -59,10 +59,23 @@ jobs:
       DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
     steps:
       - uses: actions/checkout@v4
-      - name: Install GeoDjango system libraries
+      - name: Ensure GeoDjango system libraries
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gdal-bin libgdal-dev libgeos-dev libproj-dev
+          set -euo pipefail
+          if command -v gdal-config >/dev/null 2>&1 \
+            && ldconfig -p | grep -q 'libgeos_c'; then
+            gdal-config --version
+            exit 0
+          fi
+          sudo timeout 120s apt-get update \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20
+          sudo timeout 180s apt-get install \
+            --yes \
+            --no-install-recommends \
+            gdal-bin libgdal-dev libgeos-dev libproj-dev
+          gdal-config --version
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
@@ -171,6 +184,62 @@ jobs:
         with:
           name: dataset-inspection-failure-log
           path: backend/dataset-inspection.log
+
+  martin-integration:
+    needs: backend-quality
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: geoportalx_martin
+          POSTGRES_USER: geoportalx
+          POSTGRES_PASSWORD: geoportalx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U geoportalx -d geoportalx_martin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      UV_NO_PROGRESS: "1"
+      MARTIN_TEST_DATABASE_URL: postgresql://geoportalx:geoportalx@127.0.0.1:5432/geoportalx_martin
+      MARTIN_TEST_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra dev --no-install-project
+      - name: Create Martin integration table
+        run: uv run python tests/martin_integration.py setup
+      - name: Start internal Martin service
+        run: |
+          docker run --detach --name geoportalx-martin \
+            --network host \
+            --env DATABASE_URL="$MARTIN_TEST_DATABASE_URL" \
+            --volume "$GITHUB_WORKSPACE/deploy/martin.yaml:/config/martin.yaml:ro" \
+            ghcr.io/maplibre/martin:1.11.0 \
+            --config /config/martin.yaml
+      - name: Verify Martin TileJSON and MVT
+        run: |
+          set +e
+          uv run python tests/martin_integration.py check 2>&1 | tee martin-integration.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - name: Capture Martin logs on failure
+        if: failure()
+        run: docker logs geoportalx-martin 2>&1 | tee martin-container.log || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: martin-integration-failure-log
+          path: |
+            backend/martin-integration.log
+            backend/martin-container.log
 
   frontend:
     runs-on: ubuntu-latest

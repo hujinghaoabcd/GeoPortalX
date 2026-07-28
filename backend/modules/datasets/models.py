@@ -153,12 +153,17 @@ class VectorLayer(models.Model):
     source_crs = models.TextField(blank=True)
     source_bounds = models.JSONField(default=list, blank=True)
     field_schema = models.JSONField(default=list, blank=True)
+    field_statistics = models.JSONField(default=list, blank=True)
+    quality_report = models.JSONField(default=dict, blank=True)
     geometry_type = models.CharField(max_length=64, blank=True)
     geometry_column = models.CharField(max_length=63, default="geom")
     srid = models.IntegerField(null=True, blank=True)
     feature_count = models.BigIntegerField(default=0)
     db_schema = models.CharField(max_length=63, blank=True)
     db_table = models.CharField(max_length=63, blank=True)
+    tile_source_id = models.CharField(max_length=128, blank=True, db_index=True)
+    min_zoom = models.PositiveSmallIntegerField(default=0)
+    max_zoom = models.PositiveSmallIntegerField(default=14)
     extent = models.PolygonField(srid=4326, null=True, blank=True)
     failure_code = models.CharField(max_length=100, blank=True)
     failure_message = models.TextField(blank=True)
@@ -176,6 +181,15 @@ class VectorLayer(models.Model):
                 fields=("db_schema", "db_table"),
                 condition=~models.Q(db_schema="") & ~models.Q(db_table=""),
                 name="vector_layer_storage_unique",
+            ),
+            models.UniqueConstraint(
+                fields=("tile_source_id",),
+                condition=~models.Q(tile_source_id=""),
+                name="vector_layer_tile_source_unique",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(min_zoom__lte=models.F("max_zoom")),
+                name="vector_layer_zoom_order",
             ),
         ]
 

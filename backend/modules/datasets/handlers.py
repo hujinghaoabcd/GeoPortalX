@@ -34,7 +34,13 @@ def run_vector_import(
     if version.status == DatasetVersionStatus.READY:
         return _result_payload(version)
 
-    layers = list(version.vector_layers.select_related("vector_dataset").order_by("ordinal"))
+    layers = list(
+        version.vector_layers.select_related(
+            "vector_dataset",
+            "vector_dataset__dataset",
+            "vector_dataset__dataset__resource",
+        ).order_by("ordinal")
+    )
     if not layers:
         raise ValueError("Dataset version has no vector layers to import")
 
@@ -111,6 +117,9 @@ def _prepare_import(version: DatasetVersion, layers: list[VectorLayer]) -> None:
             status=VectorLayerStatus.REGISTERED,
             db_schema="",
             db_table="",
+            tile_source_id="",
+            quality_report={},
+            field_statistics=[],
             failure_code="",
             failure_message="",
         )
@@ -133,6 +142,11 @@ def _mark_layer_ready(layer: VectorLayer, metadata) -> None:
     layer.feature_count = metadata.feature_count
     layer.field_schema = metadata.field_schema
     layer.extent = metadata.extent
+    layer.quality_report = metadata.quality_report
+    layer.field_statistics = metadata.field_statistics
+    layer.tile_source_id = metadata.tile_source_id
+    layer.min_zoom = metadata.min_zoom
+    layer.max_zoom = metadata.max_zoom
     layer.save(
         update_fields=(
             "status",
@@ -144,6 +158,11 @@ def _mark_layer_ready(layer: VectorLayer, metadata) -> None:
             "feature_count",
             "field_schema",
             "extent",
+            "quality_report",
+            "field_statistics",
+            "tile_source_id",
+            "min_zoom",
+            "max_zoom",
             "updated_at",
         )
     )
@@ -211,6 +230,9 @@ def _mark_import_cancelled(version: DatasetVersion, layers: list[VectorLayer]) -
             status=VectorLayerStatus.REGISTERED,
             db_schema="",
             db_table="",
+            tile_source_id="",
+            quality_report={},
+            field_statistics=[],
             failure_code="",
             failure_message="",
         )
@@ -247,6 +269,9 @@ def _mark_import_failed(
             status=VectorLayerStatus.FAILED,
             db_schema="",
             db_table="",
+            tile_source_id="",
+            quality_report={},
+            field_statistics=[],
             failure_code=error_code,
             failure_message=message,
         )
@@ -283,6 +308,8 @@ def _result_payload(version: DatasetVersion) -> dict[str, Any]:
                 "geometry_type": layer.geometry_type,
                 "srid": layer.srid,
                 "feature_count": layer.feature_count,
+                "tile_source_id": layer.tile_source_id,
+                "quality_report": layer.quality_report,
             }
             for layer in layers
         ],

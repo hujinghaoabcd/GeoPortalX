@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
+from django.db import connection
 from django.utils import timezone
 
 from modules.accounts.models import User
@@ -167,5 +168,30 @@ def test_vector_import_promotes_validated_layer_into_postgis(tmp_path, monkeypat
     assert layer.srid == 4326
     assert layer.feature_count == 1
     assert any(field["name"] == "name" for field in layer.field_schema)
+    assert layer.tile_source_id == layer.db_table
+    assert layer.min_zoom == 0
+    assert layer.max_zoom == 14
+    assert layer.quality_report["sample_size"] == 1
+    assert layer.quality_report["invalid_geometry_count"] == 0
+    field_statistics = {
+        field["name"]: field
+        for field in layer.field_statistics
+    }
+    assert field_statistics["name"]["distinct_count"] == 1
+    assert field_statistics["lanes"]["average"] == 2.0
     assert resource.lifecycle_status == LifecycleStatus.READY
     assert resource.spatial_extent is not None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT obj_description(
+                (%s || '.' || %s)::regclass,
+                'pg_class'
+            )
+            """,
+            [layer.db_schema, layer.db_table],
+        )
+        comment = json.loads(cursor.fetchone()[0])
+    assert comment["name"] == "Roads"
+    assert comment["geoportalx"]["layer_id"] == str(layer.id)

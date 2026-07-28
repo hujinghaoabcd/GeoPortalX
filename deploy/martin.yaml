@@ -1,0 +1,28 @@
+listen_addresses: 0.0.0.0:3000
+cors: false
+on_invalid: warn
+preferred_encoding: gzip
+worker_processes: 4
+cache:
+  size_mb: 256
+  tile_size_mb: 192
+postgres:
+  connection_string: ${DATABASE_URL}
+  default_srid: 4326
+  auto_bounds: skip
+  max_feature_count: 100000
+  pool_size: 20
+  reload_interval: 30s
+  auto_publish:
+    from_schemas:
+      - geoportalx_data
+    functions: false
+    tables:
+      from_schemas:
+        - geoportalx_data
+      source_id_format: "{table}"
+      id_columns:
+        - gx_fid
+      buffer: 64
+      clip_geom: true
+      extent: 4096

@@ -174,8 +174,28 @@ def _serialize_dataset_detail(
                 "srid": layer.srid,
                 "feature_count": layer.feature_count,
                 "field_schema": layer.field_schema,
+                "field_statistics": layer.field_statistics,
+                "quality_report": layer.quality_report,
                 "db_schema": layer.db_schema,
                 "db_table": layer.db_table,
+                "tile_source_id": layer.tile_source_id,
+                "min_zoom": layer.min_zoom,
+                "max_zoom": layer.max_zoom,
+                "tilejson_path": (
+                    f"/api/v1/vector-layers/{layer.id}/tilejson"
+                    if layer.tile_source_id
+                    else None
+                ),
+                "source_path": (
+                    f"/api/v1/vector-layers/{layer.id}/source"
+                    if layer.tile_source_id
+                    else None
+                ),
+                "quality_path": (
+                    f"/api/v1/vector-layers/{layer.id}/quality"
+                    if layer.tile_source_id
+                    else None
+                ),
                 "failure_code": layer.failure_code,
                 "failure_message": layer.failure_message,
             }
