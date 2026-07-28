@@ -33,6 +33,8 @@ services:
       MINIO_ROOT_USER: geoportalx
       MINIO_ROOT_PASSWORD: change-me-now
       MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
+      MINIO_API_STALE_UPLOADS_EXPIRY: 48h
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: 1h
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
