@@ -6,7 +6,26 @@ on:
     branches: [main]
 
 jobs:
-  backend:
+  backend-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      UV_NO_PROGRESS: "1"
+      DJANGO_SECRET_KEY: ci-secret
+      DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --extra dev --no-install-project
+      - run: uv run ruff check .
+      - run: uv run python -m compileall geoportalx modules tests
+
+  backend-test:
+    needs: backend-quality
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -25,6 +44,7 @@ jobs:
       run:
         working-directory: backend
     env:
+      UV_NO_PROGRESS: "1"
       DJANGO_SECRET_KEY: ci-secret
       DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
     steps:
@@ -33,8 +53,6 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --extra dev --no-install-project
-      - run: uv run ruff check .
-      - run: uv run python -m compileall geoportalx modules
       - run: uv run python manage.py makemigrations accounts organizations resources permissions jobs
       - uses: actions/upload-artifact@v4
         with:
@@ -56,5 +74,9 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generated-frontend-lock
+          path: frontend/pnpm-lock.yaml
       - run: pnpm typecheck
       - run: pnpm build
