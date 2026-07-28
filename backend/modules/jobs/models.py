@@ -18,23 +18,43 @@ class Job(models.Model):
     celery_task_id = models.CharField(max_length=255, blank=True, db_index=True)
     job_type = models.CharField(max_length=100, db_index=True)
     queue = models.CharField(max_length=50, default="system", db_index=True)
-    status = models.CharField(max_length=16, choices=JobStatus.choices, default=JobStatus.PENDING, db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=JobStatus.choices,
+        default=JobStatus.PENDING,
+        db_index=True,
+    )
     priority = models.SmallIntegerField(default=0)
     progress = models.PositiveSmallIntegerField(default=0)
+    resource = models.ForeignKey(
+        "resources.Resource",
+        on_delete=models.SET_NULL,
+        related_name="jobs",
+        null=True,
+        blank=True,
+    )
     input_parameters = models.JSONField(default=dict, blank=True)
     output_resources = models.JSONField(default=list, blank=True)
     error_code = models.CharField(max_length=100, blank=True)
     error_message = models.TextField(blank=True)
     retry_count = models.PositiveSmallIntegerField(default=0)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="jobs")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="jobs",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
         constraints = [
-            models.CheckConstraint(condition=models.Q(progress__gte=0, progress__lte=100), name="job_progress_range"),
+            models.CheckConstraint(
+                condition=models.Q(progress__gte=0, progress__lte=100),
+                name="job_progress_range",
+            ),
         ]
 
     def __str__(self) -> str:
