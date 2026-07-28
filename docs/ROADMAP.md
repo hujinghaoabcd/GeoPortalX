@@ -30,12 +30,13 @@ Status: implementation ready for review
 - [x] Permission-filtered Resource queryset and service layer
 - [x] Authenticated organization and resource APIs
 - [x] Authenticated Job list, create, detail and cancel APIs
-- [ ] MinIO/S3 storage abstraction
+- [x] MinIO/S3 storage abstraction and bucket bootstrap
+- [x] Persistent direct-upload sessions and multipart API
 - [ ] Audit log foundation
 
 ## Milestone M2 — Vector publishing
 
-- [ ] Upload sessions
+- [x] Upload sessions
 - [ ] Shapefile/GeoPackage/GeoJSON inspection
 - [ ] PostGIS import pipeline
 - [ ] Spatial indexes and statistics

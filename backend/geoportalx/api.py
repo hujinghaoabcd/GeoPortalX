@@ -6,6 +6,7 @@ from ninja import NinjaAPI, Schema
 from modules.jobs.api import router as jobs_router
 from modules.organizations.api import router as organizations_router
 from modules.resources.api import router as resources_router
+from modules.uploads.api import router as uploads_router
 
 api = NinjaAPI(title="GeoPortalX API", version="1.0.0", urls_namespace="api-v1")
 
@@ -33,3 +34,4 @@ def health(request):
 api.add_router("/organizations", organizations_router)
 api.add_router("/resources", resources_router)
 api.add_router("/jobs", jobs_router)
+api.add_router("/uploads", uploads_router)
