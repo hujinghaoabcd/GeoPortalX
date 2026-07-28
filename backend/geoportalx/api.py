@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from django.db import connection
 from ninja import NinjaAPI, Schema
 
+from modules.datasets.api import router as datasets_router
 from modules.jobs.api import router as jobs_router
 from modules.organizations.api import router as organizations_router
 from modules.resources.api import router as resources_router
@@ -35,3 +36,4 @@ api.add_router("/organizations", organizations_router)
 api.add_router("/resources", resources_router)
 api.add_router("/jobs", jobs_router)
 api.add_router("/uploads", uploads_router)
+api.add_router("/datasets", datasets_router)
