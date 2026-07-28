@@ -2,17 +2,16 @@ import os
 import shutil
 from pathlib import Path
 
-import numpy as np
 import pytest
+
+if os.environ.get("RUN_RASTER_COG_INTEGRATION") != "1":
+    pytest.skip("real COG conversion integration is disabled", allow_module_level=True)
+
+import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
 from modules.datasets.raster_conversion import convert_to_cog
-
-pytestmark = pytest.mark.skipif(
-    os.environ.get("RUN_RASTER_COG_INTEGRATION") != "1",
-    reason="real COG conversion integration is disabled",
-)
 
 
 def test_real_geotiff_is_converted_to_valid_cog(tmp_path: Path) -> None:
