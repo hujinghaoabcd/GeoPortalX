@@ -22,7 +22,13 @@ def datasets_accessible_to(
             "resource__organization",
             "current_version",
         )
-        .prefetch_related("versions", "vector__layers")
+        .prefetch_related(
+            "versions",
+            "vector__layers",
+            "version_activations__from_version",
+            "version_activations__to_version",
+            "version_activations__activated_by",
+        )
         .annotate(version_count=Count("versions", distinct=True))
     )
 

@@ -12,9 +12,18 @@ from modules.organizations.models import Organization
 from modules.permissions.models import PermissionAction
 from modules.resources.models import Visibility
 
-from .models import Dataset, DatasetKind, DatasetStatus
+from .models import (
+    Dataset,
+    DatasetKind,
+    DatasetStatus,
+    DatasetVersionActivationAction,
+)
 from .selectors import dataset_accessible_to, datasets_accessible_to
-from .services import register_dataset_from_inspection
+from .services import (
+    activate_ready_dataset_version,
+    register_dataset_from_inspection,
+    register_dataset_replacement_from_inspection,
+)
 
 router = Router(auth=SessionAuth(), tags=["datasets"])
 
@@ -28,6 +37,16 @@ class DatasetRegisterIn(Schema):
     organization_id: UUID | None = None
     selected_layers: list[str] | None = None
     start_import: bool = True
+
+
+class DatasetVersionRegisterIn(Schema):
+    inspection_job_id: UUID
+    selected_layers: list[str] | None = None
+    start_import: bool = True
+
+
+class DatasetVersionActivateIn(Schema):
+    note: str = ""
 
 
 class DatasetOut(Schema):
@@ -50,6 +69,7 @@ class DatasetOut(Schema):
 
 class DatasetDetailOut(DatasetOut):
     versions: list[dict[str, Any]] = Field(default_factory=list)
+    version_activations: list[dict[str, Any]] = Field(default_factory=list)
     vector_layers: list[dict[str, Any]] = Field(default_factory=list)
     raster: dict[str, Any] | None = None
 
@@ -98,11 +118,7 @@ def register_dataset(request, payload: DatasetRegisterIn):
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
 
-    dataset = (
-        Dataset.objects.select_related("resource", "current_version")
-        .prefetch_related("versions", "vector__layers")
-        .get(pk=registration.dataset.pk)
-    )
+    dataset = _reload_dataset(registration.dataset.pk)
     import_job_id = registration.import_job.id if registration.import_job else None
     body = _serialize_dataset_detail(dataset, import_job_id=import_job_id)
     return (201 if registration.created else 200), body
@@ -116,7 +132,97 @@ def get_dataset(request, dataset_id: UUID):
     return _serialize_dataset_detail(dataset)
 
 
-def _serialize_dataset(dataset: Dataset, *, import_job_id: UUID | None = None) -> dict[str, Any]:
+@router.post(
+    "/{dataset_id}/versions",
+    response={200: DatasetDetailOut, 201: DatasetDetailOut},
+)
+def register_dataset_version(
+    request,
+    dataset_id: UUID,
+    payload: DatasetVersionRegisterIn,
+):
+    dataset = dataset_accessible_to(request.auth, dataset_id, PermissionAction.EDIT)
+    if dataset is None:
+        raise HttpError(404, "Dataset not found")
+    inspection_job = job_for_user(request.auth, payload.inspection_job_id)
+    if inspection_job is None:
+        raise HttpError(404, "Inspection job not found")
+    try:
+        registration = register_dataset_replacement_from_inspection(
+            actor=request.auth,
+            dataset_id=dataset.id,
+            inspection_job=inspection_job,
+            selected_layers=payload.selected_layers,
+            start_import=payload.start_import,
+        )
+    except PermissionError as exc:
+        raise HttpError(404, "Dataset not found") from exc
+    except ValueError as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    refreshed = _reload_dataset(dataset.id)
+    import_job_id = registration.import_job.id if registration.import_job else None
+    body = _serialize_dataset_detail(refreshed, import_job_id=import_job_id)
+    return (201 if registration.created else 200), body
+
+
+@router.post(
+    "/{dataset_id}/versions/{version_id}/activate",
+    response=DatasetDetailOut,
+)
+def activate_dataset_version(
+    request,
+    dataset_id: UUID,
+    version_id: UUID,
+    payload: DatasetVersionActivateIn,
+):
+    dataset = dataset_accessible_to(request.auth, dataset_id, PermissionAction.EDIT)
+    if dataset is None:
+        raise HttpError(404, "Dataset not found")
+    target = dataset.versions.filter(pk=version_id).first()
+    if target is None:
+        raise HttpError(404, "Dataset version not found")
+
+    action = DatasetVersionActivationAction.MANUAL
+    if (
+        dataset.current_version is not None
+        and target.version_number < dataset.current_version.version_number
+    ):
+        action = DatasetVersionActivationAction.ROLLBACK
+    try:
+        activate_ready_dataset_version(
+            actor=request.auth,
+            dataset_id=dataset.id,
+            version_id=target.id,
+            requested_action=action,
+            note=payload.note,
+        )
+    except PermissionError as exc:
+        raise HttpError(404, "Dataset not found") from exc
+    except ValueError as exc:
+        raise HttpError(409, str(exc)) from exc
+    return _serialize_dataset_detail(_reload_dataset(dataset.id))
+
+
+def _reload_dataset(dataset_id: UUID) -> Dataset:
+    return (
+        Dataset.objects.select_related("resource", "current_version")
+        .prefetch_related(
+            "versions",
+            "vector__layers",
+            "version_activations__from_version",
+            "version_activations__to_version",
+            "version_activations__activated_by",
+        )
+        .get(pk=dataset_id)
+    )
+
+
+def _serialize_dataset(
+    dataset: Dataset,
+    *,
+    import_job_id: UUID | None = None,
+) -> dict[str, Any]:
     resource = dataset.resource
     return {
         "id": dataset.id,
@@ -148,6 +254,7 @@ def _serialize_dataset_detail(
             "id": str(version.id),
             "version_number": version.version_number,
             "status": version.status,
+            "is_active": dataset.current_version_id == version.id,
             "source_upload_id": str(version.source_upload_id),
             "inspection_job_id": str(version.inspection_job_id),
             "source_format": version.source_format,
@@ -155,9 +262,36 @@ def _serialize_dataset_detail(
             "failure_code": version.failure_code,
             "failure_message": version.failure_message,
             "created_at": version.created_at.isoformat(),
-            "imported_at": version.imported_at.isoformat() if version.imported_at else None,
+            "imported_at": (
+                version.imported_at.isoformat() if version.imported_at else None
+            ),
+            "activated_at": (
+                version.activated_at.isoformat() if version.activated_at else None
+            ),
+            "deactivated_at": (
+                version.deactivated_at.isoformat()
+                if version.deactivated_at
+                else None
+            ),
+            "activation_count": version.activation_count,
         }
         for version in dataset.versions.all()
+    ]
+    payload["version_activations"] = [
+        {
+            "id": str(activation.id),
+            "from_version_id": (
+                str(activation.from_version_id)
+                if activation.from_version_id
+                else None
+            ),
+            "to_version_id": str(activation.to_version_id),
+            "action": activation.action,
+            "activated_by_id": str(activation.activated_by_id),
+            "note": activation.note,
+            "created_at": activation.created_at.isoformat(),
+        }
+        for activation in dataset.version_activations.all()
     ]
     payload["vector_layers"] = []
     payload["raster"] = None
@@ -166,6 +300,7 @@ def _serialize_dataset_detail(
             {
                 "id": str(layer.id),
                 "version_id": str(layer.version_id),
+                "is_active": dataset.current_version_id == layer.version_id,
                 "name": layer.source_layer_name,
                 "title": layer.title,
                 "status": layer.status,
@@ -184,16 +319,19 @@ def _serialize_dataset_detail(
                 "tilejson_path": (
                     f"/api/v1/vector-layers/{layer.id}/tilejson"
                     if layer.tile_source_id
+                    and dataset.current_version_id == layer.version_id
                     else None
                 ),
                 "source_path": (
                     f"/api/v1/vector-layers/{layer.id}/source"
                     if layer.tile_source_id
+                    and dataset.current_version_id == layer.version_id
                     else None
                 ),
                 "quality_path": (
                     f"/api/v1/vector-layers/{layer.id}/quality"
                     if layer.tile_source_id
+                    and dataset.current_version_id == layer.version_id
                     else None
                 ),
                 "failure_code": layer.failure_code,

@@ -2,7 +2,6 @@ from contextlib import suppress
 from typing import Any
 from uuid import UUID
 
-from django.contrib.gis.geos import Polygon
 from django.db import transaction
 from django.utils import timezone
 
@@ -23,6 +22,7 @@ from .models import (
     VectorLayer,
     VectorLayerStatus,
 )
+from .services import activate_ready_dataset_version
 
 
 @register_job_handler("vector-import")
@@ -30,8 +30,14 @@ def run_vector_import(
     context: JobExecutionContext,
     parameters: dict[str, Any],
 ) -> dict[str, Any]:
-    version = _resolve_import_version(context, parameters)
+    version, job = _resolve_import_version(context, parameters)
     if version.status == DatasetVersionStatus.READY:
+        activate_ready_dataset_version(
+            actor=job.created_by,
+            dataset_id=version.dataset_id,
+            version_id=version.id,
+            note="Recovered activation after a completed vector import",
+        )
         return _result_payload(version)
 
     layers = list(
@@ -56,8 +62,8 @@ def run_vector_import(
                 context.report_progress(progress, f"Importing vector layer {layer.title}")
                 metadata = import_vector_layer(source=materialized.path, layer=layer)
                 _mark_layer_ready(layer, metadata)
-            context.report_progress(90, "Finalizing vector dataset")
-            _mark_import_ready(version)
+            context.report_progress(90, "Activating imported dataset version")
+            _mark_import_ready(version, actor=job.created_by)
     except JobCancellationRequested:
         _mark_import_cancelled(version, layers)
         raise
@@ -70,7 +76,7 @@ def run_vector_import(
 def _resolve_import_version(
     context: JobExecutionContext,
     parameters: dict[str, Any],
-) -> DatasetVersion:
+) -> tuple[DatasetVersion, Job]:
     raw_id = parameters.get("dataset_version_id")
     try:
         version_id = UUID(str(raw_id))
@@ -80,6 +86,7 @@ def _resolve_import_version(
         version = DatasetVersion.objects.select_related(
             "dataset",
             "dataset__resource",
+            "dataset__current_version",
             "source_upload",
         ).get(pk=version_id)
     except DatasetVersion.DoesNotExist as exc:
@@ -90,29 +97,51 @@ def _resolve_import_version(
     job = Job.objects.select_related("created_by", "resource").get(pk=context.job_id)
     if job.resource_id != version.dataset.resource_id:
         raise PermissionError("Import job resource does not match the dataset")
-    if not has_resource_permission(job.created_by, version.dataset.resource, PermissionAction.EDIT):
+    if not has_resource_permission(
+        job.created_by,
+        version.dataset.resource,
+        PermissionAction.EDIT,
+    ):
         raise PermissionError("Import job creator cannot edit the dataset")
-    if version.source_upload.created_by_id != job.created_by_id and not job.created_by.is_superuser:
+    if (
+        version.source_upload.created_by_id != job.created_by_id
+        and not job.created_by.is_superuser
+    ):
         raise PermissionError("Import job creator does not own the source upload")
-    return version
+    return version, job
 
 
 def _prepare_import(version: DatasetVersion, layers: list[VectorLayer]) -> None:
     for layer in layers:
         drop_vector_layer_storage(layer)
     with transaction.atomic():
-        version.dataset.status = DatasetStatus.IMPORTING
-        version.dataset.failure_code = ""
-        version.dataset.failure_message = ""
-        version.dataset.save(
-            update_fields=("status", "failure_code", "failure_message", "updated_at")
+        locked = (
+            DatasetVersion.objects.select_for_update()
+            .select_related("dataset", "dataset__resource")
+            .get(pk=version.pk)
         )
-        version.status = DatasetVersionStatus.IMPORTING
-        version.failure_code = ""
-        version.failure_message = ""
-        version.save(update_fields=("status", "failure_code", "failure_message"))
-        version.dataset.resource.lifecycle_status = LifecycleStatus.PROCESSING
-        version.dataset.resource.save(update_fields=("lifecycle_status", "updated_at"))
+        has_active_version = locked.dataset.current_version_id is not None
+        if not has_active_version:
+            locked.dataset.status = DatasetStatus.IMPORTING
+            locked.dataset.failure_code = ""
+            locked.dataset.failure_message = ""
+            locked.dataset.save(
+                update_fields=(
+                    "status",
+                    "failure_code",
+                    "failure_message",
+                    "updated_at",
+                )
+            )
+            locked.dataset.resource.lifecycle_status = LifecycleStatus.PROCESSING
+            locked.dataset.resource.save(
+                update_fields=("lifecycle_status", "updated_at")
+            )
+
+        locked.status = DatasetVersionStatus.IMPORTING
+        locked.failure_code = ""
+        locked.failure_message = ""
+        locked.save(update_fields=("status", "failure_code", "failure_message"))
         VectorLayer.objects.filter(pk__in=[layer.pk for layer in layers]).update(
             status=VectorLayerStatus.REGISTERED,
             db_schema="",
@@ -168,41 +197,31 @@ def _mark_layer_ready(layer: VectorLayer, metadata) -> None:
     )
 
 
-@transaction.atomic
-def _mark_import_ready(version: DatasetVersion) -> None:
-    locked = DatasetVersion.objects.select_for_update().select_related(
-        "dataset",
-        "dataset__resource",
-    ).get(pk=version.pk)
-    layers = list(locked.vector_layers.all())
-    if not layers or any(layer.status != VectorLayerStatus.READY for layer in layers):
-        raise ValueError("All vector layers must be ready before finalization")
-    locked.status = DatasetVersionStatus.READY
-    locked.imported_at = timezone.now()
-    locked.save(update_fields=("status", "imported_at", "failure_code", "failure_message"))
-
-    dataset = locked.dataset
-    dataset.status = DatasetStatus.READY
-    dataset.current_version = locked
-    dataset.failure_code = ""
-    dataset.failure_message = ""
-    dataset.save(
-        update_fields=(
-            "status",
-            "current_version",
-            "failure_code",
-            "failure_message",
-            "updated_at",
+def _mark_import_ready(version: DatasetVersion, *, actor) -> None:
+    with transaction.atomic():
+        locked = DatasetVersion.objects.select_for_update().get(pk=version.pk)
+        layers = list(locked.vector_layers.all())
+        if not layers or any(layer.status != VectorLayerStatus.READY for layer in layers):
+            raise ValueError("All vector layers must be ready before finalization")
+        locked.status = DatasetVersionStatus.READY
+        locked.imported_at = timezone.now()
+        locked.failure_code = ""
+        locked.failure_message = ""
+        locked.save(
+            update_fields=(
+                "status",
+                "imported_at",
+                "failure_code",
+                "failure_message",
+            )
         )
-    )
-    dataset.vector.imported_layer_count = len(layers)
-    dataset.vector.save(update_fields=("imported_layer_count",))
 
-    extents = [layer.extent for layer in layers if layer.extent is not None]
-    resource = dataset.resource
-    resource.lifecycle_status = LifecycleStatus.READY
-    resource.spatial_extent = _union_extents(extents)
-    resource.save(update_fields=("lifecycle_status", "spatial_extent", "updated_at"))
+    activate_ready_dataset_version(
+        actor=actor,
+        dataset_id=version.dataset_id,
+        version_id=version.id,
+        note="Automatically activated after successful vector import",
+    )
 
 
 def _mark_import_cancelled(version: DatasetVersion, layers: list[VectorLayer]) -> None:
@@ -218,14 +237,25 @@ def _mark_import_cancelled(version: DatasetVersion, layers: list[VectorLayer]) -
         locked.failure_code = ""
         locked.failure_message = ""
         locked.save(update_fields=("status", "failure_code", "failure_message"))
-        locked.dataset.status = DatasetStatus.REGISTERED
-        locked.dataset.failure_code = ""
-        locked.dataset.failure_message = ""
-        locked.dataset.save(
-            update_fields=("status", "failure_code", "failure_message", "updated_at")
-        )
-        locked.dataset.resource.lifecycle_status = LifecycleStatus.DRAFT
-        locked.dataset.resource.save(update_fields=("lifecycle_status", "updated_at"))
+
+        has_active_version = locked.dataset.current_version_id is not None
+        if not has_active_version:
+            locked.dataset.status = DatasetStatus.REGISTERED
+            locked.dataset.failure_code = ""
+            locked.dataset.failure_message = ""
+            locked.dataset.save(
+                update_fields=(
+                    "status",
+                    "failure_code",
+                    "failure_message",
+                    "updated_at",
+                )
+            )
+            locked.dataset.resource.lifecycle_status = LifecycleStatus.DRAFT
+            locked.dataset.resource.save(
+                update_fields=("lifecycle_status", "updated_at")
+            )
+
         VectorLayer.objects.filter(version=locked).update(
             status=VectorLayerStatus.REGISTERED,
             db_schema="",
@@ -257,14 +287,25 @@ def _mark_import_failed(
         locked.failure_code = error_code
         locked.failure_message = message
         locked.save(update_fields=("status", "failure_code", "failure_message"))
-        locked.dataset.status = DatasetStatus.FAILED
-        locked.dataset.failure_code = error_code
-        locked.dataset.failure_message = message
-        locked.dataset.save(
-            update_fields=("status", "failure_code", "failure_message", "updated_at")
-        )
-        locked.dataset.resource.lifecycle_status = LifecycleStatus.FAILED
-        locked.dataset.resource.save(update_fields=("lifecycle_status", "updated_at"))
+
+        has_active_version = locked.dataset.current_version_id is not None
+        if not has_active_version:
+            locked.dataset.status = DatasetStatus.FAILED
+            locked.dataset.failure_code = error_code
+            locked.dataset.failure_message = message
+            locked.dataset.save(
+                update_fields=(
+                    "status",
+                    "failure_code",
+                    "failure_message",
+                    "updated_at",
+                )
+            )
+            locked.dataset.resource.lifecycle_status = LifecycleStatus.FAILED
+            locked.dataset.resource.save(
+                update_fields=("lifecycle_status", "updated_at")
+            )
+
         VectorLayer.objects.filter(version=locked).update(
             status=VectorLayerStatus.FAILED,
             db_schema="",
@@ -277,18 +318,6 @@ def _mark_import_failed(
         )
 
 
-def _union_extents(extents: list[Polygon]) -> Polygon | None:
-    if not extents:
-        return None
-    min_x = min(extent.extent[0] for extent in extents)
-    min_y = min(extent.extent[1] for extent in extents)
-    max_x = max(extent.extent[2] for extent in extents)
-    max_y = max(extent.extent[3] for extent in extents)
-    polygon = Polygon.from_bbox((min_x, min_y, max_x, max_y))
-    polygon.srid = 4326
-    return polygon
-
-
 def _result_payload(version: DatasetVersion) -> dict[str, Any]:
     version.refresh_from_db()
     layers = version.vector_layers.order_by("ordinal")
@@ -296,6 +325,12 @@ def _result_payload(version: DatasetVersion) -> dict[str, Any]:
         "dataset_id": str(version.dataset_id),
         "resource_id": str(version.dataset.resource_id),
         "dataset_version_id": str(version.id),
+        "current_version_id": (
+            str(version.dataset.current_version_id)
+            if version.dataset.current_version_id
+            else None
+        ),
+        "is_active": version.dataset.current_version_id == version.id,
         "version_number": version.version_number,
         "layers": [
             {
