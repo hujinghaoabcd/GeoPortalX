@@ -8,7 +8,7 @@ import pytest
 
 from modules.object_storage import services
 from modules.object_storage.client import clear_s3_client_cache
-from modules.object_storage.publication import publish_file, presign_download
+from modules.object_storage.publication import presign_download, publish_file
 
 
 @pytest.mark.skipif(
