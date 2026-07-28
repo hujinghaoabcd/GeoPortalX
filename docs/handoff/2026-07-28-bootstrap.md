@@ -37,6 +37,7 @@
 - Docker Compose services for PostGIS, Redis, MinIO, backend, workers, Martin, TiTiler and frontend.
 - Reproducible `uv.lock` and `pnpm-lock.yaml` files.
 - GitHub Actions quality, migration, backend-test, frontend-typecheck and production-build checks.
+- CI failure artifacts for Ruff diagnostics.
 
 ## Current API surface
 
@@ -73,7 +74,7 @@ and token-based authentication remain separate later tasks.
 - Ruff validation.
 - Python source compilation.
 - GeoDjango/PostGIS migration consistency check.
-- Backend pytest suite against PostGIS.
+- Backend pytest suite against PostGIS, including organization and resource APIs.
 - Vue TypeScript type checking.
 - Vite production build.
 
