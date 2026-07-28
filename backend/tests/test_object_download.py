@@ -1,5 +1,4 @@
 import hashlib
-from pathlib import Path
 
 from modules.object_storage import services
 
