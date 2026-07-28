@@ -15,6 +15,7 @@ env = environ.Env(
     DATASET_INSPECTION_MAX_ARCHIVE_MEMBERS=(int, 10_000),
     DATASET_INSPECTION_MAX_UNCOMPRESSED_SIZE=(int, 100 * 1024 * 1024 * 1024),
     DATASET_INSPECTION_MAX_COMPRESSION_RATIO=(float, 100.0),
+    VECTOR_IMPORT_TIMEOUT=(int, 60 * 60),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -38,6 +39,7 @@ INSTALLED_APPS = [
     "modules.jobs",
     "modules.object_storage",
     "modules.uploads",
+    "modules.datasets",
 ]
 
 MIDDLEWARE = [
@@ -62,9 +64,9 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
-                "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "django.template.context_processors.request",
             ],
         },
     }
@@ -139,3 +141,7 @@ S3_CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS
 DATASET_INSPECTION_MAX_ARCHIVE_MEMBERS = env("DATASET_INSPECTION_MAX_ARCHIVE_MEMBERS")
 DATASET_INSPECTION_MAX_UNCOMPRESSED_SIZE = env("DATASET_INSPECTION_MAX_UNCOMPRESSED_SIZE")
 DATASET_INSPECTION_MAX_COMPRESSION_RATIO = env("DATASET_INSPECTION_MAX_COMPRESSION_RATIO")
+DATASET_DB_SCHEMA = env("DATASET_DB_SCHEMA", default="geoportalx_data")
+DATASET_STAGING_SCHEMA = env("DATASET_STAGING_SCHEMA", default="geoportalx_staging")
+OGR2OGR_EXECUTABLE = env("OGR2OGR_EXECUTABLE", default="ogr2ogr")
+VECTOR_IMPORT_TIMEOUT = env("VECTOR_IMPORT_TIMEOUT")

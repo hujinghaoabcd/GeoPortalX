@@ -11,3 +11,4 @@ class JobsConfig(AppConfig):
     def ready(self) -> None:
         import_module("modules.jobs.handlers")
         import_module("modules.dataset_inspection.handlers")
+        import_module("modules.datasets.handlers")

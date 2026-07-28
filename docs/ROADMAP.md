@@ -32,14 +32,17 @@ Status: implementation ready for review
 - [x] Authenticated Job list, create, detail and cancel APIs
 - [x] MinIO/S3 storage abstraction and bucket bootstrap
 - [x] Persistent direct-upload sessions and multipart API
+- [x] Dataset, DatasetVersion and typed vector/raster registrations
 - [ ] Audit log foundation
 
 ## Milestone M2 — Vector publishing
 
 - [x] Upload sessions
 - [x] Shapefile/GeoPackage/GeoJSON inspection
-- [ ] PostGIS import pipeline
-- [ ] Spatial indexes and statistics
+- [x] Persistent vector dataset and layer registration
+- [x] PostGIS staging and import pipeline
+- [x] GiST spatial indexes and PostgreSQL statistics
+- [ ] Geometry quality report and field statistics
 - [ ] Martin MVT publishing
 - [ ] MapLibre vector rendering
 - [ ] Feature identify and download
@@ -48,6 +51,7 @@ Status: implementation ready for review
 ## Milestone M3 — Raster publishing
 
 - [x] GeoTIFF inspection
+- [x] Persistent raster dataset registration
 - [ ] COG conversion
 - [ ] Overviews and statistics
 - [ ] MinIO/S3 publication
