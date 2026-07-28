@@ -154,7 +154,6 @@ def _mark_import_ready(version: DatasetVersion) -> None:
     locked = DatasetVersion.objects.select_for_update().select_related(
         "dataset",
         "dataset__resource",
-        "dataset__vector",
     ).get(pk=version.pk)
     layers = list(locked.vector_layers.all())
     if not layers or any(layer.status != VectorLayerStatus.READY for layer in layers):
