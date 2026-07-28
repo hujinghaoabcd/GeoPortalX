@@ -72,7 +72,7 @@ def execute_job(self, job_id: str) -> dict:
             exc=exc,
             countdown=countdown,
             max_retries=retrying.max_retries,
-        )
+        ) from exc
     except Exception as exc:
         transition_job(
             job=Job.objects.get(pk=job_uuid),
