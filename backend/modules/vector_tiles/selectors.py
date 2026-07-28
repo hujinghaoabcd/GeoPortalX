@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
 
 from modules.accounts.models import User
 from modules.datasets.models import VectorLayer, VectorLayerStatus
@@ -22,6 +22,7 @@ def vector_layers_accessible_to(
     ).filter(
         status=VectorLayerStatus.READY,
         tile_source_id__gt="",
+        version_id=F("vector_dataset__dataset__current_version_id"),
         vector_dataset__dataset__resource_id__in=accessible_resources,
     )
 

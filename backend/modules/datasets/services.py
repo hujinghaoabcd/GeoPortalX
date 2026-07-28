@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Max
+from django.utils import timezone
 
 from modules.accounts.models import User
 from modules.jobs.models import Job, JobStatus
@@ -18,10 +21,13 @@ from .models import (
     DatasetKind,
     DatasetStatus,
     DatasetVersion,
+    DatasetVersionActivation,
+    DatasetVersionActivationAction,
     DatasetVersionStatus,
     RasterDataset,
     VectorDataset,
     VectorLayer,
+    VectorLayerStatus,
 )
 
 
@@ -33,6 +39,15 @@ class DatasetRegistration:
     created: bool
 
 
+@dataclass(frozen=True, slots=True)
+class DatasetVersionActivationResult:
+    dataset: Dataset
+    version: DatasetVersion
+    previous_version: DatasetVersion | None
+    activation: DatasetVersionActivation | None
+    changed: bool
+
+
 _INSPECTION_JOB_TYPES = {
     "vector-inspect": DatasetKind.VECTOR,
     "raster-inspect": DatasetKind.RASTER,
@@ -40,6 +55,10 @@ _INSPECTION_JOB_TYPES = {
 _RESOURCE_TYPES = {
     DatasetKind.VECTOR: ResourceType.VECTOR_DATASET,
     DatasetKind.RASTER: ResourceType.RASTER_DATASET,
+}
+_PENDING_VERSION_STATUSES = {
+    DatasetVersionStatus.REGISTERED,
+    DatasetVersionStatus.IMPORTING,
 }
 
 
@@ -56,7 +75,7 @@ def register_dataset_from_inspection(
     selected_layers: list[str] | None = None,
     start_import: bool = True,
 ) -> DatasetRegistration:
-    """Convert one successful inspection into an immutable dataset version."""
+    """Convert one successful inspection into the first immutable dataset version."""
 
     kind = _validate_inspection_job(actor=actor, inspection_job=inspection_job)
     upload, inspection = _resolve_inspection_payload(inspection_job)
@@ -88,9 +107,265 @@ def register_dataset_from_inspection(
         kind=kind,
         status=DatasetStatus.REGISTERED,
     )
-    version = DatasetVersion.objects.create(
+    version = _create_version(
         dataset=dataset,
+        actor=actor,
+        inspection_job=inspection_job,
+        upload=upload,
+        inspection=inspection,
         version_number=1,
+    )
+
+    import_job: Job | None = None
+    if kind == DatasetKind.VECTOR:
+        vector_dataset = VectorDataset.objects.create(dataset=dataset)
+        _register_vector_layers(
+            vector_dataset=vector_dataset,
+            version=version,
+            inspection=inspection,
+            selected_layers=selected_layers,
+        )
+        if start_import:
+            import_job = _queue_vector_import(
+                actor=actor,
+                dataset=dataset,
+                version=version,
+            )
+    else:
+        _register_raster_dataset(dataset=dataset, inspection=inspection)
+        version.status = DatasetVersionStatus.READY
+        version.imported_at = timezone.now()
+        version.save(update_fields=("status", "imported_at"))
+        activate_ready_dataset_version(
+            actor=actor,
+            dataset_id=dataset.id,
+            version_id=version.id,
+            requested_action=DatasetVersionActivationAction.INITIAL,
+            note="Initial raster registration",
+        )
+
+    return DatasetRegistration(
+        dataset=dataset,
+        version=version,
+        import_job=import_job,
+        created=True,
+    )
+
+
+@transaction.atomic
+def register_dataset_replacement_from_inspection(
+    *,
+    actor: User,
+    dataset_id: UUID,
+    inspection_job: Job,
+    selected_layers: list[str] | None = None,
+    start_import: bool = True,
+) -> DatasetRegistration:
+    """Register a candidate version without disturbing the active version."""
+
+    dataset = (
+        Dataset.objects.select_for_update()
+        .select_related("resource", "current_version")
+        .get(pk=dataset_id)
+    )
+    if not has_resource_permission(actor, dataset.resource, PermissionAction.EDIT):
+        raise PermissionError("User cannot replace this dataset")
+    if dataset.kind != DatasetKind.VECTOR:
+        raise ValueError("Dataset replacement currently supports vector datasets only")
+
+    kind = _validate_inspection_job(actor=actor, inspection_job=inspection_job)
+    if kind != dataset.kind:
+        raise ValueError("Inspection type does not match the dataset kind")
+    upload, inspection = _resolve_inspection_payload(inspection_job)
+    if upload.resource_id != dataset.resource_id:
+        raise ValueError(
+            "Replacement upload must be created against the existing dataset resource"
+        )
+
+    existing = (
+        DatasetVersion.objects.select_related("dataset")
+        .filter(source_upload=upload)
+        .first()
+    )
+    if existing is not None:
+        if existing.dataset_id != dataset.id:
+            raise ValueError("Upload is already registered to another dataset")
+        return DatasetRegistration(
+            dataset=dataset,
+            version=existing,
+            import_job=_active_import_job(existing),
+            created=False,
+        )
+
+    pending = dataset.versions.filter(status__in=_PENDING_VERSION_STATUSES)
+    if dataset.current_version_id is not None:
+        pending = pending.exclude(pk=dataset.current_version_id)
+    if pending.exists():
+        raise ValueError("Dataset already has a pending replacement version")
+
+    maximum = dataset.versions.aggregate(value=Max("version_number"))["value"] or 0
+    version = _create_version(
+        dataset=dataset,
+        actor=actor,
+        inspection_job=inspection_job,
+        upload=upload,
+        inspection=inspection,
+        version_number=int(maximum) + 1,
+    )
+    _register_vector_layers(
+        vector_dataset=dataset.vector,
+        version=version,
+        inspection=inspection,
+        selected_layers=selected_layers,
+    )
+
+    import_job = None
+    if start_import:
+        import_job = _queue_vector_import(
+            actor=actor,
+            dataset=dataset,
+            version=version,
+        )
+    return DatasetRegistration(
+        dataset=dataset,
+        version=version,
+        import_job=import_job,
+        created=True,
+    )
+
+
+@transaction.atomic
+def activate_ready_dataset_version(
+    *,
+    actor: User,
+    dataset_id: UUID,
+    version_id: UUID,
+    requested_action: str | None = None,
+    note: str = "",
+) -> DatasetVersionActivationResult:
+    """Atomically publish a ready version or roll back to a ready historical version."""
+
+    dataset = (
+        Dataset.objects.select_for_update()
+        .select_related("resource", "current_version")
+        .get(pk=dataset_id)
+    )
+    if not has_resource_permission(actor, dataset.resource, PermissionAction.EDIT):
+        raise PermissionError("User cannot activate this dataset version")
+    version = (
+        DatasetVersion.objects.select_for_update()
+        .select_related("dataset")
+        .get(pk=version_id, dataset=dataset)
+    )
+    if version.status != DatasetVersionStatus.READY:
+        raise ValueError("Only ready dataset versions can be activated")
+
+    layers = list(version.vector_layers.all()) if dataset.kind == DatasetKind.VECTOR else []
+    if dataset.kind == DatasetKind.VECTOR:
+        if not layers or any(
+            layer.status != VectorLayerStatus.READY
+            or not layer.db_schema
+            or not layer.db_table
+            or not layer.tile_source_id
+            for layer in layers
+        ):
+            raise ValueError("All version layers must be ready before activation")
+
+    already_finalized = (
+        dataset.current_version_id == version.id
+        and dataset.status == DatasetStatus.READY
+        and dataset.resource.lifecycle_status == LifecycleStatus.READY
+        and version.activation_count > 0
+    )
+    if already_finalized:
+        return DatasetVersionActivationResult(
+            dataset=dataset,
+            version=version,
+            previous_version=version,
+            activation=None,
+            changed=False,
+        )
+
+    previous = (
+        dataset.current_version
+        if dataset.current_version_id != version.id
+        else None
+    )
+    action = _activation_action(
+        previous=previous,
+        target=version,
+        requested=requested_action,
+    )
+    now = timezone.now()
+    if previous is not None:
+        previous.deactivated_at = now
+        previous.save(update_fields=("deactivated_at",))
+
+    version.activated_at = now
+    version.deactivated_at = None
+    version.activation_count += 1
+    version.save(
+        update_fields=(
+            "activated_at",
+            "deactivated_at",
+            "activation_count",
+        )
+    )
+
+    dataset.current_version = version
+    dataset.status = DatasetStatus.READY
+    dataset.failure_code = ""
+    dataset.failure_message = ""
+    dataset.save(
+        update_fields=(
+            "current_version",
+            "status",
+            "failure_code",
+            "failure_message",
+            "updated_at",
+        )
+    )
+
+    if dataset.kind == DatasetKind.VECTOR:
+        dataset.vector.layer_count = len(layers)
+        dataset.vector.imported_layer_count = len(layers)
+        dataset.vector.save(update_fields=("layer_count", "imported_layer_count"))
+
+    dataset.resource.lifecycle_status = LifecycleStatus.READY
+    dataset.resource.spatial_extent = _version_extent(dataset=dataset, layers=layers)
+    dataset.resource.save(
+        update_fields=("lifecycle_status", "spatial_extent", "updated_at")
+    )
+
+    activation = DatasetVersionActivation.objects.create(
+        dataset=dataset,
+        from_version=previous,
+        to_version=version,
+        action=action,
+        activated_by=actor,
+        note=str(note or "")[:500],
+    )
+    return DatasetVersionActivationResult(
+        dataset=dataset,
+        version=version,
+        previous_version=previous,
+        activation=activation,
+        changed=True,
+    )
+
+
+def _create_version(
+    *,
+    dataset: Dataset,
+    actor: User,
+    inspection_job: Job,
+    upload: UploadSession,
+    inspection: dict[str, Any],
+    version_number: int,
+) -> DatasetVersion:
+    return DatasetVersion.objects.create(
+        dataset=dataset,
+        version_number=version_number,
         source_upload=upload,
         inspection_job=inspection_job,
         source_format=str(inspection.get("format", "")),
@@ -99,34 +374,6 @@ def register_dataset_from_inspection(
         ),
         inspection_result=inspection,
         created_by=actor,
-    )
-    dataset.current_version = version
-    dataset.save(update_fields=("current_version", "updated_at"))
-
-    import_job: Job | None = None
-    if kind == DatasetKind.VECTOR:
-        _register_vector_dataset(
-            dataset=dataset,
-            version=version,
-            inspection=inspection,
-            selected_layers=selected_layers,
-        )
-        if start_import:
-            import_job = _queue_vector_import(actor=actor, dataset=dataset, version=version)
-    else:
-        _register_raster_dataset(dataset=dataset, inspection=inspection)
-        dataset.status = DatasetStatus.READY
-        dataset.save(update_fields=("status", "updated_at"))
-        version.status = DatasetVersionStatus.READY
-        version.save(update_fields=("status",))
-        resource.lifecycle_status = LifecycleStatus.READY
-        resource.save(update_fields=("lifecycle_status", "updated_at"))
-
-    return DatasetRegistration(
-        dataset=dataset,
-        version=version,
-        import_job=import_job,
-        created=True,
     )
 
 
@@ -141,7 +388,9 @@ def _validate_inspection_job(*, actor: User, inspection_job: Job) -> str:
         raise ValueError("Job is not a supported dataset inspection") from exc
 
 
-def _resolve_inspection_payload(inspection_job: Job) -> tuple[UploadSession, dict[str, Any]]:
+def _resolve_inspection_payload(
+    inspection_job: Job,
+) -> tuple[UploadSession, dict[str, Any]]:
     payload = inspection_job.result_payload
     upload_payload = payload.get("upload")
     inspection = payload.get("inspection")
@@ -151,7 +400,9 @@ def _resolve_inspection_payload(inspection_job: Job) -> tuple[UploadSession, dic
     if not upload_id:
         raise ValueError("Inspection result does not identify its upload")
     try:
-        upload = UploadSession.objects.select_related("resource", "created_by").get(pk=upload_id)
+        upload = UploadSession.objects.select_related("resource", "created_by").get(
+            pk=upload_id
+        )
     except (UploadSession.DoesNotExist, ValueError) as exc:
         raise ValueError("Inspection upload no longer exists") from exc
     if upload.status != UploadStatus.COMPLETED:
@@ -196,9 +447,9 @@ def _resolve_or_create_resource(
     )
 
 
-def _register_vector_dataset(
+def _register_vector_layers(
     *,
-    dataset: Dataset,
+    vector_dataset: VectorDataset,
     version: DatasetVersion,
     inspection: dict[str, Any],
     selected_layers: list[str] | None,
@@ -221,7 +472,6 @@ def _register_vector_dataset(
     if unknown:
         raise ValueError(f"Unknown or nonspatial vector layers: {', '.join(unknown)}")
 
-    vector_dataset = VectorDataset.objects.create(dataset=dataset, layer_count=len(names))
     for ordinal, name in enumerate(names, start=1):
         layer = available[name]
         VectorLayer.objects.create(
@@ -256,24 +506,80 @@ def _register_raster_dataset(*, dataset: Dataset, inspection: dict[str, Any]) ->
     )
 
 
-def _queue_vector_import(*, actor: User, dataset: Dataset, version: DatasetVersion) -> Job:
-    dataset.status = DatasetStatus.IMPORTING
-    dataset.failure_code = ""
-    dataset.failure_message = ""
-    dataset.save(update_fields=("status", "failure_code", "failure_message", "updated_at"))
+def _queue_vector_import(
+    *,
+    actor: User,
+    dataset: Dataset,
+    version: DatasetVersion,
+) -> Job:
+    has_active_version = dataset.current_version_id is not None
+    if not has_active_version:
+        dataset.status = DatasetStatus.IMPORTING
+        dataset.failure_code = ""
+        dataset.failure_message = ""
+        dataset.save(
+            update_fields=(
+                "status",
+                "failure_code",
+                "failure_message",
+                "updated_at",
+            )
+        )
+        resource = dataset.resource
+        resource.lifecycle_status = LifecycleStatus.PROCESSING
+        resource.save(update_fields=("lifecycle_status", "updated_at"))
+
     version.status = DatasetVersionStatus.IMPORTING
+    version.failure_code = ""
+    version.failure_message = ""
     version.save(update_fields=("status", "failure_code", "failure_message"))
-    resource = dataset.resource
-    resource.lifecycle_status = LifecycleStatus.PROCESSING
-    resource.save(update_fields=("lifecycle_status", "updated_at"))
     return create_and_dispatch_job(
         created_by=actor,
         job_type="vector-import",
         input_parameters={"dataset_version_id": str(version.id)},
-        resource=resource,
+        resource=dataset.resource,
         queue="vector",
         max_retries=1,
     )
+
+
+def _activation_action(
+    *,
+    previous: DatasetVersion | None,
+    target: DatasetVersion,
+    requested: str | None,
+) -> str:
+    if requested is not None:
+        if requested not in DatasetVersionActivationAction.values:
+            raise ValueError("Unknown dataset version activation action")
+        return requested
+    if previous is None:
+        return DatasetVersionActivationAction.INITIAL
+    if target.version_number > previous.version_number:
+        return DatasetVersionActivationAction.REPLACEMENT
+    if target.version_number < previous.version_number:
+        return DatasetVersionActivationAction.ROLLBACK
+    return DatasetVersionActivationAction.MANUAL
+
+
+def _version_extent(*, dataset: Dataset, layers: list[VectorLayer]):
+    if dataset.kind == DatasetKind.VECTOR:
+        return _union_extents([layer.extent for layer in layers if layer.extent is not None])
+    return dataset.resource.spatial_extent
+
+
+def _union_extents(extents):
+    if not extents:
+        return None
+    from django.contrib.gis.geos import Polygon
+
+    min_x = min(extent.extent[0] for extent in extents)
+    min_y = min(extent.extent[1] for extent in extents)
+    max_x = max(extent.extent[2] for extent in extents)
+    max_y = max(extent.extent[3] for extent in extents)
+    polygon = Polygon.from_bbox((min_x, min_y, max_x, max_y))
+    polygon.srid = 4326
+    return polygon
 
 
 def _active_import_job(version: DatasetVersion) -> Job | None:

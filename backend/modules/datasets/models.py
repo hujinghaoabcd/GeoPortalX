@@ -24,6 +24,13 @@ class DatasetVersionStatus(models.TextChoices):
     FAILED = "FAILED", "Failed"
 
 
+class DatasetVersionActivationAction(models.TextChoices):
+    INITIAL = "INITIAL", "Initial activation"
+    REPLACEMENT = "REPLACEMENT", "Replacement activation"
+    ROLLBACK = "ROLLBACK", "Rollback"
+    MANUAL = "MANUAL", "Manual activation"
+
+
 class VectorLayerStatus(models.TextChoices):
     REGISTERED = "REGISTERED", "Registered"
     IMPORTING = "IMPORTING", "Importing"
@@ -100,6 +107,9 @@ class DatasetVersion(models.Model):
     failure_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     imported_at = models.DateTimeField(null=True, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    activation_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ("dataset", "version_number")
@@ -112,6 +122,44 @@ class DatasetVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.dataset.resource.title} v{self.version_number}"
+
+
+class DatasetVersionActivation(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    dataset = models.ForeignKey(
+        Dataset,
+        on_delete=models.CASCADE,
+        related_name="version_activations",
+    )
+    from_version = models.ForeignKey(
+        DatasetVersion,
+        on_delete=models.PROTECT,
+        related_name="activation_departures",
+        null=True,
+        blank=True,
+    )
+    to_version = models.ForeignKey(
+        DatasetVersion,
+        on_delete=models.PROTECT,
+        related_name="activation_arrivals",
+    )
+    action = models.CharField(
+        max_length=16,
+        choices=DatasetVersionActivationAction.choices,
+    )
+    activated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="dataset_version_activations",
+    )
+    note = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.dataset}: {self.action} -> v{self.to_version.version_number}"
 
 
 class VectorDataset(models.Model):
