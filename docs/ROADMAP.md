@@ -2,26 +2,28 @@
 
 ## Milestone M0 — Repository foundation
 
-Status: in progress
+Status: implementation ready for review
 
 - [x] Create clean `GeoPortalX` repository
 - [x] Fix MapLibre GL JS as the only 2D renderer
 - [x] Document modular-monolith architecture
 - [x] Document technology stack and project structure
 - [x] Document staged development plan
-- [ ] Create backend and frontend applications
-- [ ] Create Docker Compose development stack
-- [ ] Add CI and code-quality configuration
-- [ ] Add initial handoff and architecture decision records
+- [x] Create backend and frontend applications
+- [x] Create Docker Compose development stack
+- [x] Add CI and code-quality configuration
+- [x] Add initial handoff and architecture decision records
+- [ ] Run full dependency installation and container integration validation
+- [ ] Generate and review initial migrations
 
 ## Milestone M1 — Platform core
 
-- [ ] Custom UUID user model
+- [x] Custom UUID user model skeleton
 - [ ] Organizations, memberships, groups and roles
-- [ ] Unified Resource model
+- [x] Unified Resource model skeleton
 - [ ] Central permission engine
-- [ ] Persistent Job ledger
-- [ ] Celery routing and progress reporting
+- [x] Persistent Job ledger skeleton
+- [ ] Celery job lifecycle and progress reporting
 - [ ] MinIO/S3 storage abstraction
 - [ ] Audit log foundation
 

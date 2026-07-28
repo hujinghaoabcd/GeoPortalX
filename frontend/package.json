@@ -1,0 +1,26 @@
+{
+  "name": "geoportalx-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vue-tsc -b && vite build",
+    "typecheck": "vue-tsc -b --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.0.0",
+    "pinia": "^4.0.2",
+    "vue": "^3.5.40",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.2",
+    "vitest": "^4.1.10",
+    "vue-tsc": "^3.0.0"
+  },
+  "packageManager": "pnpm@10.0.0"
+}

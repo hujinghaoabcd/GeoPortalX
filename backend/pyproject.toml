@@ -1,0 +1,57 @@
+[project]
+name = "geoportalx-backend"
+version = "0.1.0"
+description = "GeoPortalX backend"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "Django>=5.2.16,<5.3",
+  "django-ninja>=1.6.2,<1.7",
+  "django-cors-headers>=4.7,<5",
+  "django-environ>=0.12,<1",
+  "psycopg[binary,pool]>=3.2,<4",
+  "celery[redis]>=5.6.3,<5.7",
+  "boto3>=1.40,<2",
+  "gunicorn>=23,<24",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-django>=4.11,<5",
+  "ruff>=0.12,<1",
+  "mypy>=1.17,<2",
+  "django-stubs>=5.2,<6",
+]
+geo = [
+  "GDAL>=3.10,<4",
+  "geopandas>=1.1,<2",
+  "pyogrio>=0.11,<1",
+  "rasterio>=1.4,<2",
+  "shapely>=2.1,<3",
+  "pycsw>=3.0,<4",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "geoportalx.settings.test"
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "DJ"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+
+[tool.django-stubs]
+django_settings_module = "geoportalx.settings.test"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
