@@ -21,6 +21,10 @@ class StoredObject:
     content_type: str
 
 
+def _client_error_code(exc: ClientError) -> str:
+    return str(exc.response.get("Error", {}).get("Code", ""))
+
+
 def ensure_bucket() -> None:
     """Create and configure the canonical bucket when it does not exist."""
 
@@ -29,7 +33,7 @@ def ensure_bucket() -> None:
     try:
         client.head_bucket(Bucket=bucket)
     except ClientError as exc:
-        error_code = str(exc.response.get("Error", {}).get("Code", ""))
+        error_code = _client_error_code(exc)
         status_code = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         if error_code not in {"404", "NoSuchBucket", "NotFound"} and status_code != 404:
             raise ObjectStorageError(f"Could not inspect bucket {bucket}") from exc
@@ -38,51 +42,71 @@ def ensure_bucket() -> None:
             parameters["CreateBucketConfiguration"] = {
                 "LocationConstraint": settings.S3_REGION,
             }
-        client.create_bucket(**parameters)
+        try:
+            client.create_bucket(**parameters)
+        except ClientError as create_exc:
+            raise ObjectStorageError(f"Could not create bucket {bucket}") from create_exc
 
     configure_bucket_cors()
     configure_incomplete_upload_lifecycle()
 
 
-def configure_bucket_cors() -> None:
+def configure_bucket_cors() -> bool:
+    """Configure bucket CORS when supported by the selected S3 provider.
+
+    Some S3-compatible providers, including community MinIO releases, expose CORS
+    through a server-level setting instead of ``PutBucketCors``. In that case the
+    provider returns ``NotImplemented`` and bucket bootstrap continues. The return
+    value tells callers whether bucket-level CORS was applied.
+    """
+
     origins = list(settings.S3_CORS_ALLOWED_ORIGINS)
     if not origins:
-        return
-    get_s3_client().put_bucket_cors(
-        Bucket=settings.S3_BUCKET,
-        CORSConfiguration={
-            "CORSRules": [
-                {
-                    "AllowedHeaders": ["*"],
-                    "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
-                    "AllowedOrigins": origins,
-                    "ExposeHeaders": ["ETag", "x-amz-checksum-sha256"],
-                    "MaxAgeSeconds": 3600,
-                }
-            ]
-        },
-    )
+        return False
+    try:
+        get_s3_client().put_bucket_cors(
+            Bucket=settings.S3_BUCKET,
+            CORSConfiguration={
+                "CORSRules": [
+                    {
+                        "AllowedHeaders": ["*"],
+                        "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+                        "AllowedOrigins": origins,
+                        "ExposeHeaders": ["ETag", "x-amz-checksum-sha256"],
+                        "MaxAgeSeconds": 3600,
+                    }
+                ]
+            },
+        )
+    except ClientError as exc:
+        if _client_error_code(exc) in {"NotImplemented", "NotSupported"}:
+            return False
+        raise ObjectStorageError("Could not configure bucket CORS") from exc
+    return True
 
 
 def configure_incomplete_upload_lifecycle() -> None:
     days = settings.S3_ABORT_INCOMPLETE_DAYS
     if days <= 0:
         return
-    get_s3_client().put_bucket_lifecycle_configuration(
-        Bucket=settings.S3_BUCKET,
-        LifecycleConfiguration={
-            "Rules": [
-                {
-                    "ID": "geoportalx-abort-incomplete-multipart-uploads",
-                    "Status": "Enabled",
-                    "Filter": {"Prefix": "uploads/"},
-                    "AbortIncompleteMultipartUpload": {
-                        "DaysAfterInitiation": days,
-                    },
-                }
-            ]
-        },
-    )
+    try:
+        get_s3_client().put_bucket_lifecycle_configuration(
+            Bucket=settings.S3_BUCKET,
+            LifecycleConfiguration={
+                "Rules": [
+                    {
+                        "ID": "geoportalx-abort-incomplete-multipart-uploads",
+                        "Status": "Enabled",
+                        "Filter": {"Prefix": "uploads/"},
+                        "AbortIncompleteMultipartUpload": {
+                            "DaysAfterInitiation": days,
+                        },
+                    }
+                ]
+            },
+        )
+    except ClientError as exc:
+        raise ObjectStorageError("Could not configure multipart cleanup lifecycle") from exc
 
 
 def initiate_multipart_upload(
