@@ -85,10 +85,17 @@ def configure_bucket_cors() -> bool:
     return True
 
 
-def configure_incomplete_upload_lifecycle() -> None:
+def configure_incomplete_upload_lifecycle() -> bool:
+    """Configure automatic multipart cleanup when the provider supports the API.
+
+    AWS S3 errors remain fatal. For an explicitly configured S3-compatible endpoint,
+    known compatibility responses allow bootstrap to continue so the deployment can
+    use its provider-level stale-upload cleanup setting instead.
+    """
+
     days = settings.S3_ABORT_INCOMPLETE_DAYS
     if days <= 0:
-        return
+        return False
     try:
         get_s3_client().put_bucket_lifecycle_configuration(
             Bucket=settings.S3_BUCKET,
@@ -106,7 +113,11 @@ def configure_incomplete_upload_lifecycle() -> None:
             },
         )
     except ClientError as exc:
+        compatibility_errors = {"InvalidArgument", "NotImplemented", "NotSupported"}
+        if settings.S3_ENDPOINT_URL and _client_error_code(exc) in compatibility_errors:
+            return False
         raise ObjectStorageError("Could not configure multipart cleanup lifecycle") from exc
+    return True
 
 
 def initiate_multipart_upload(
