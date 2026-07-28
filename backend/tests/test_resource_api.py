@@ -66,8 +66,16 @@ def test_resource_list_is_permission_filtered(client):
 
 @pytest.mark.django_db
 def test_resource_list_includes_explicit_user_grant(client):
-    owner = User.objects.create_user(username="grant-owner", email="owner2@example.com", password="pw")
-    viewer = User.objects.create_user(username="grant-viewer", email="viewer2@example.com", password="pw")
+    owner = User.objects.create_user(
+        username="grant-owner",
+        email="owner2@example.com",
+        password="pw",
+    )
+    viewer = User.objects.create_user(
+        username="grant-viewer",
+        email="viewer2@example.com",
+        password="pw",
+    )
     resource = create_resource(
         owner=owner,
         resource_type=ResourceType.MAP,
@@ -91,8 +99,16 @@ def test_resource_list_includes_explicit_user_grant(client):
 
 @pytest.mark.django_db
 def test_organization_member_sees_organization_resource(client):
-    owner = User.objects.create_user(username="org-owner", email="org-owner@example.com", password="pw")
-    member = User.objects.create_user(username="org-member", email="org-member@example.com", password="pw")
+    owner = User.objects.create_user(
+        username="org-owner",
+        email="org-owner@example.com",
+        password="pw",
+    )
+    member = User.objects.create_user(
+        username="org-member",
+        email="org-member@example.com",
+        password="pw",
+    )
     organization = create_organization(owner=owner, name="Org", slug="org")
     set_member_role(organization=organization, user=member, role=OrganizationRole.MEMBER)
     create_resource(
