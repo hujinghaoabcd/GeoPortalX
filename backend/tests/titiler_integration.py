@@ -87,17 +87,17 @@ def _read(path: str, parameters: dict[str, object] | None = None) -> tuple[bytes
 
 
 def check() -> None:
+    asset = f"s3://{BUCKET}/{KEY}"
+    info_body: bytes | None = None
     for _ in range(60):
         try:
-            _read("/openapi.json")
+            info_body, _ = _read("/cog/info", {"url": asset})
             break
         except OSError:
             time.sleep(1)
-    else:
-        raise RuntimeError("TiTiler did not become ready")
+    if info_body is None:
+        raise RuntimeError("TiTiler could not read the integration COG")
 
-    asset = f"s3://{BUCKET}/{KEY}"
-    info_body, _ = _read("/cog/info", {"url": asset})
     info = json.loads(info_body)
     assert info["width"] == 1024
     assert info["height"] == 1024
