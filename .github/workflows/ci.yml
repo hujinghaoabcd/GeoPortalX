@@ -59,10 +59,23 @@ jobs:
       DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
     steps:
       - uses: actions/checkout@v4
-      - name: Install GeoDjango system libraries
+      - name: Ensure GeoDjango system libraries
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gdal-bin libgdal-dev libgeos-dev libproj-dev
+          set -euo pipefail
+          if command -v gdal-config >/dev/null 2>&1 \
+            && ldconfig -p | grep -q 'libgeos_c'; then
+            gdal-config --version
+            exit 0
+          fi
+          sudo timeout 120s apt-get update \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20
+          sudo timeout 180s apt-get install \
+            --yes \
+            --no-install-recommends \
+            gdal-bin libgdal-dev libgeos-dev libproj-dev
+          gdal-config --version
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
