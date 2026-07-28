@@ -64,7 +64,7 @@ services:
       - ../.env
     environment:
       MARTIN_INTERNAL_URL: http://martin:3000
-      TITILER_INTERNAL_URL: http://titiler:8000
+      TITILER_INTERNAL_URL: http://titiler:80
     depends_on:
       postgis:
         condition: service_healthy
@@ -85,7 +85,7 @@ services:
       - ../.env
     environment:
       MARTIN_INTERNAL_URL: http://martin:3000
-      TITILER_INTERNAL_URL: http://titiler:8000
+      TITILER_INTERNAL_URL: http://titiler:80
     depends_on:
       postgis:
         condition: service_healthy
@@ -127,7 +127,7 @@ services:
       AWS_ACCESS_KEY_ID: geoportalx
       AWS_SECRET_ACCESS_KEY: change-me-now
       AWS_REGION: us-east-1
-      AWS_S3_ENDPOINT: http://minio:9000
+      AWS_S3_ENDPOINT: minio:9000
       AWS_HTTPS: "NO"
       AWS_VIRTUAL_HOSTING: "FALSE"
       GDAL_CACHEMAX: "256"
@@ -144,7 +144,7 @@ services:
       storage-init:
         condition: service_completed_successfully
     expose:
-      - "8000"
+      - "80"
 
   frontend:
     build:
