@@ -26,9 +26,10 @@ Status: implementation ready for review
 - [x] Central resource permission model and evaluation service
 - [x] Persistent Job ledger and initial migration
 - [x] Validated, row-locked Job lifecycle transitions
-- [ ] Celery task progress reporting and cancellation integration
+- [x] Celery dispatch, progress, retry and cooperative cancellation integration
 - [x] Permission-filtered Resource queryset and service layer
 - [x] Authenticated organization and resource APIs
+- [x] Authenticated Job list, create, detail and cancel APIs
 - [ ] MinIO/S3 storage abstraction
 - [ ] Audit log foundation
 
