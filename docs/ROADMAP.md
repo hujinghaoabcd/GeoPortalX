@@ -37,7 +37,7 @@ Status: implementation ready for review
 ## Milestone M2 — Vector publishing
 
 - [x] Upload sessions
-- [ ] Shapefile/GeoPackage/GeoJSON inspection
+- [x] Shapefile/GeoPackage/GeoJSON inspection
 - [ ] PostGIS import pipeline
 - [ ] Spatial indexes and statistics
 - [ ] Martin MVT publishing
@@ -47,7 +47,7 @@ Status: implementation ready for review
 
 ## Milestone M3 — Raster publishing
 
-- [ ] GeoTIFF inspection
+- [x] GeoTIFF inspection
 - [ ] COG conversion
 - [ ] Overviews and statistics
 - [ ] MinIO/S3 publication

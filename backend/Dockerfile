@@ -12,8 +12,14 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir uv
 WORKDIR /app
-COPY pyproject.toml /app/pyproject.toml
-RUN uv sync --extra dev --no-install-project
+COPY pyproject.toml uv.lock /app/
+RUN uv sync --locked \
+    --extra dev \
+    --extra geo \
+    --no-install-package gdal \
+    --no-install-package geopandas \
+    --no-install-package pycsw \
+    --no-install-project
 COPY . /app
 
 EXPOSE 8000

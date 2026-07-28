@@ -126,6 +126,42 @@ jobs:
         if: failure()
         run: docker logs geoportalx-minio
 
+  dataset-inspection:
+    needs: backend-quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      UV_NO_PROGRESS: "1"
+      DJANGO_SETTINGS_MODULE: geoportalx.settings.inspection_integration
+      RUN_DATASET_INSPECTION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Install inspection dependencies
+        run: |
+          uv sync --locked \
+            --extra dev \
+            --extra geo \
+            --no-install-package gdal \
+            --no-install-package geopandas \
+            --no-install-package pycsw \
+            --no-install-project
+      - name: Test real vector and raster files
+        run: |
+          set +e
+          uv run --no-sync pytest -vv tests/test_dataset_inspection_files.py 2>&1 | tee dataset-inspection.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: dataset-inspection-failure-log
+          path: backend/dataset-inspection.log
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
