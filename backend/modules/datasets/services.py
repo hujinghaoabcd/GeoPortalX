@@ -165,7 +165,7 @@ def register_dataset_replacement_from_inspection(
 
     dataset = (
         Dataset.objects.select_for_update()
-        .select_related("resource", "current_version")
+        .select_related("resource")
         .get(pk=dataset_id)
     )
     if not has_resource_permission(actor, dataset.resource, PermissionAction.EDIT):
@@ -247,7 +247,7 @@ def activate_ready_dataset_version(
 
     dataset = (
         Dataset.objects.select_for_update()
-        .select_related("resource", "current_version")
+        .select_related("resource")
         .get(pk=dataset_id)
     )
     if not has_resource_permission(actor, dataset.resource, PermissionAction.EDIT):
