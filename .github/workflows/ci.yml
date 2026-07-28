@@ -109,7 +109,17 @@ jobs:
           done
           docker logs geoportalx-minio
           exit 1
-      - run: uv run pytest tests/test_minio_integration.py
+      - name: Test real MinIO multipart flow
+        run: |
+          set +e
+          uv run pytest -vv tests/test_minio_integration.py 2>&1 | tee storage-integration.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: storage-integration-failure-log
+          path: backend/storage-integration.log
       - name: Show MinIO logs on failure
         if: failure()
         run: docker logs geoportalx-minio
