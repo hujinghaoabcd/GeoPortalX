@@ -27,16 +27,32 @@ services:
       - redis_data:/data
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: geoportalx
       MINIO_ROOT_PASSWORD: change-me-now
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - minio_data:/data
+
+  storage-init:
+    build:
+      context: ../backend
+    command: python manage.py ensure_storage
+    env_file:
+      - ../.env
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
 
   backend:
     build:
@@ -48,6 +64,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     volumes:
@@ -64,6 +82,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     volumes:
       - ../backend:/app
 
@@ -98,7 +118,8 @@ services:
       AWS_HTTPS: "NO"
       AWS_VIRTUAL_HOSTING: "FALSE"
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     ports:
       - "8001:8000"
 
