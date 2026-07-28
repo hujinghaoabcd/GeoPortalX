@@ -54,14 +54,31 @@ def check_martin() -> None:
     else:
         raise RuntimeError("Martin did not become healthy")
 
+    with urlopen(f"{base_url}/catalog", timeout=5) as response:
+        catalog = json.load(response)
+    print(json.dumps({"catalog": catalog}, sort_keys=True))
+    tile_sources = catalog.get("tiles", {})
+    assert "v_integration" in tile_sources, tile_sources
+
     with urlopen(f"{base_url}/v_integration", timeout=5) as response:
         tilejson = json.load(response)
+    print(json.dumps({"tilejson": tilejson}, sort_keys=True))
     assert tilejson["tilejson"] == "3.0.0"
     assert tilejson["vector_layers"][0]["id"] == "v_integration"
-    assert tilejson["vector_layers"][0]["fields"]["name"]
+    assert "name" in tilejson["vector_layers"][0]["fields"]
 
     with urlopen(f"{base_url}/v_integration/0/0/0", timeout=10) as response:
         tile = response.read()
+        print(
+            json.dumps(
+                {
+                    "tile_status": response.status,
+                    "tile_content_type": response.headers.get("Content-Type"),
+                    "tile_size": len(tile),
+                },
+                sort_keys=True,
+            )
+        )
         assert response.status in {200, 204}
         if response.status == 200:
             assert tile
