@@ -36,13 +36,38 @@ class LifecycleStatus(models.TextChoices):
 
 class Resource(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    resource_type = models.CharField(max_length=32, choices=ResourceType.choices, db_index=True)
+    resource_type = models.CharField(
+        max_length=32,
+        choices=ResourceType.choices,
+        db_index=True,
+    )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)
     description = models.TextField(blank=True)
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="resources")
-    visibility = models.CharField(max_length=24, choices=Visibility.choices, default=Visibility.PRIVATE, db_index=True)
-    lifecycle_status = models.CharField(max_length=24, choices=LifecycleStatus.choices, default=LifecycleStatus.DRAFT, db_index=True)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="resources",
+    )
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="resources",
+        null=True,
+        blank=True,
+    )
+    visibility = models.CharField(
+        max_length=24,
+        choices=Visibility.choices,
+        default=Visibility.PRIVATE,
+        db_index=True,
+    )
+    lifecycle_status = models.CharField(
+        max_length=24,
+        choices=LifecycleStatus.choices,
+        default=LifecycleStatus.DRAFT,
+        db_index=True,
+    )
     spatial_extent = models.PolygonField(srid=4326, null=True, blank=True)
     temporal_start = models.DateTimeField(null=True, blank=True)
     temporal_end = models.DateTimeField(null=True, blank=True)
@@ -54,7 +79,10 @@ class Resource(models.Model):
     class Meta:
         ordering = ("-updated_at",)
         constraints = [
-            models.UniqueConstraint(fields=("owner", "slug"), name="resource_owner_slug_unique"),
+            models.UniqueConstraint(
+                fields=("owner", "slug"),
+                name="resource_owner_slug_unique",
+            ),
         ]
 
     def __str__(self) -> str:
