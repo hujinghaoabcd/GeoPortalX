@@ -32,7 +32,18 @@ jobs:
         with:
           name: backend-quality-failure-log
           path: backend/uv-sync.log
-      - run: uv run ruff check .
+      - name: Lint backend
+        run: |
+          set +e
+          uv run ruff check . > ruff.log 2>&1
+          status=$?
+          cat ruff.log
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-ruff-failure-log
+          path: backend/ruff.log
       - run: uv run python -m compileall geoportalx modules tests
 
   backend-test:
