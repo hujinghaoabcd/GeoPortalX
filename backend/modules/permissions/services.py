@@ -2,20 +2,24 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from modules.accounts.models import User
-from modules.organizations.models import (
-    Organization,
-    OrganizationGroupMember,
-)
+from modules.organizations.models import Organization, OrganizationGroupMember
 from modules.resources.models import Resource, Visibility
 
 from .models import PermissionAction, PermissionSubjectType, ResourcePermission
 
 _ACTION_IMPLICATIONS: dict[str, set[str]] = {
-    PermissionAction.VIEW: {PermissionAction.VIEW},
+    PermissionAction.VIEW: {
+        PermissionAction.VIEW,
+        PermissionAction.DOWNLOAD,
+        PermissionAction.EDIT,
+        PermissionAction.PUBLISH,
+        PermissionAction.MANAGE,
+        PermissionAction.OWNER,
+    },
     PermissionAction.DOWNLOAD: {
         PermissionAction.DOWNLOAD,
         PermissionAction.EDIT,
@@ -64,7 +68,7 @@ def has_resource_permission(
         if user.is_superuser or resource.owner_id == user.id:
             return True
         if required_action == PermissionAction.VIEW:
-            if resource.visibility == Visibility.AUTHENTICATED:
+            if resource.visibility in {Visibility.AUTHENTICATED, Visibility.PUBLIC}:
                 return True
             if (
                 resource.visibility == Visibility.ORGANIZATION
@@ -75,10 +79,26 @@ def has_resource_permission(
     elif required_action == PermissionAction.VIEW and resource.visibility == Visibility.PUBLIC:
         return True
 
-    if required_action == PermissionAction.VIEW and resource.visibility == Visibility.PUBLIC:
-        return True
+    subject_filter = _subject_filter_for(user, share_link_id=share_link_id)
+    active_time = Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+    return (
+        ResourcePermission.objects.filter(
+            resource=resource,
+            action__in=allowed_actions,
+        )
+        .filter(active_time)
+        .filter(subject_filter)
+        .exists()
+    )
 
+
+def _subject_filter_for(
+    user: User | AnonymousUser,
+    *,
+    share_link_id: UUID | None,
+) -> Q:
     subject_filter = Q()
+
     if user.is_authenticated:
         subject_filter |= Q(
             subject_type=PermissionSubjectType.USER,
@@ -88,23 +108,13 @@ def has_resource_permission(
             subject_type=PermissionSubjectType.AUTHENTICATED,
             subject_id__isnull=True,
         )
-
-        organization_ids = _organization_ids_for(user)
         subject_filter |= Q(
             subject_type=PermissionSubjectType.ORGANIZATION,
-            subject_id__in=organization_ids,
+            subject_id__in=_organization_ids_for(user),
         )
-
-        group_ids = OrganizationGroupMember.objects.filter(
-            user=user,
-            is_active=True,
-            group__organization__is_active=True,
-            group__organization__memberships__user=user,
-            group__organization__memberships__is_active=True,
-        ).values_list("group_id", flat=True)
         subject_filter |= Q(
             subject_type=PermissionSubjectType.GROUP,
-            subject_id__in=group_ids,
+            subject_id__in=_group_ids_for(user),
         )
     else:
         subject_filter |= Q(
@@ -118,18 +128,25 @@ def has_resource_permission(
             subject_id=share_link_id,
         )
 
-    if not subject_filter:
-        return False
-
-    active_time = Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
-    return ResourcePermission.objects.filter(
-        resource=resource,
-        action__in=allowed_actions,
-    ).filter(active_time).filter(subject_filter).exists()
+    return subject_filter
 
 
-def _organization_ids_for(user: User):
-    return Organization.objects.filter(
-        Q(owner=user) | Q(memberships__user=user, memberships__is_active=True),
+def _organization_ids_for(user: User) -> QuerySet[UUID]:
+    return (
+        Organization.objects.filter(
+            Q(owner=user) | Q(memberships__user=user, memberships__is_active=True),
+            is_active=True,
+        )
+        .values_list("id", flat=True)
+        .distinct()
+    )
+
+
+def _group_ids_for(user: User) -> QuerySet[UUID]:
+    return OrganizationGroupMember.objects.filter(
+        user=user,
         is_active=True,
-    ).values_list("id", flat=True).distinct()
+        group__organization__is_active=True,
+        group__organization__memberships__user=user,
+        group__organization__memberships__is_active=True,
+    ).values_list("group_id", flat=True)
