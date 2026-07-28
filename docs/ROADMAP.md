@@ -13,17 +13,22 @@ Status: implementation ready for review
 - [x] Create Docker Compose development stack
 - [x] Add CI and code-quality configuration
 - [x] Add initial handoff and architecture decision records
-- [ ] Run full dependency installation and container integration validation
-- [ ] Generate and review initial migrations
+- [x] Validate dependency installation, migrations, tests and frontend production build in CI
+- [x] Generate and review initial migrations
+- [x] Commit reproducible backend and frontend dependency lockfiles
+- [ ] Run the full Docker Compose stack and service-to-service integration tests
 
 ## Milestone M1 — Platform core
 
-- [x] Custom UUID user model skeleton
-- [ ] Organizations, memberships, groups and roles
-- [x] Unified Resource model skeleton
-- [ ] Central permission engine
-- [x] Persistent Job ledger skeleton
-- [ ] Celery job lifecycle and progress reporting
+- [x] Custom UUID user model and initial migration
+- [x] Organizations, memberships, groups and roles
+- [x] Unified Resource model and initial migration
+- [x] Central resource permission model and evaluation service
+- [x] Persistent Job ledger and initial migration
+- [x] Validated, row-locked Job lifecycle transitions
+- [ ] Celery task progress reporting and cancellation integration
+- [ ] Permission-filtered Resource queryset and service layer
+- [ ] Authenticated organization and resource APIs
 - [ ] MinIO/S3 storage abstraction
 - [ ] Audit log foundation
 
