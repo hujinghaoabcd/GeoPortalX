@@ -38,6 +38,19 @@ class VectorLayerStatus(models.TextChoices):
     FAILED = "FAILED", "Failed"
 
 
+class RasterPublicationStatus(models.TextChoices):
+    PENDING = "PENDING", "Pending"
+    PROCESSING = "PROCESSING", "Processing"
+    READY = "READY", "Ready"
+    FAILED = "FAILED", "Failed"
+    CANCELLED = "CANCELLED", "Cancelled"
+
+
+class RasterRenderMode(models.TextChoices):
+    SINGLE_BAND = "SINGLE_BAND", "Single band"
+    RGB = "RGB", "RGB"
+
+
 class Dataset(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     resource = models.OneToOneField(
@@ -268,3 +281,118 @@ class RasterDataset(models.Model):
 
     def __str__(self) -> str:
         return self.dataset.resource.title
+
+
+class RasterPublication(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    raster_dataset = models.ForeignKey(
+        RasterDataset,
+        on_delete=models.CASCADE,
+        related_name="publications",
+    )
+    version = models.OneToOneField(
+        DatasetVersion,
+        on_delete=models.CASCADE,
+        related_name="raster_publication",
+    )
+    job = models.OneToOneField(
+        "jobs.Job",
+        on_delete=models.PROTECT,
+        related_name="raster_publication",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=RasterPublicationStatus.choices,
+        default=RasterPublicationStatus.PENDING,
+        db_index=True,
+    )
+    bucket = models.CharField(max_length=255, blank=True)
+    object_key = models.CharField(max_length=1024, blank=True)
+    object_version_id = models.CharField(max_length=255, blank=True)
+    object_etag = models.CharField(max_length=255, blank=True)
+    checksum_sha256 = models.CharField(max_length=64, blank=True)
+    content_type = models.CharField(max_length=255, blank=True)
+    object_size = models.PositiveBigIntegerField(default=0)
+    width = models.PositiveIntegerField(default=0)
+    height = models.PositiveIntegerField(default=0)
+    band_count = models.PositiveIntegerField(default=0)
+    crs = models.TextField(blank=True)
+    epsg = models.IntegerField(null=True, blank=True)
+    bounds = models.JSONField(default=list, blank=True)
+    transform = models.JSONField(default=list, blank=True)
+    bands = models.JSONField(default=list, blank=True)
+    statistics = models.JSONField(default=list, blank=True)
+    image_structure = models.JSONField(default=dict, blank=True)
+    cog_profile = models.JSONField(default=dict, blank=True)
+    min_zoom = models.PositiveSmallIntegerField(default=0)
+    max_zoom = models.PositiveSmallIntegerField(default=22)
+    failure_code = models.CharField(max_length=100, blank=True)
+    failure_message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="raster_publications",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(min_zoom__lte=models.F("max_zoom")),
+                name="raster_publication_zoom_order",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("raster_dataset", "status"),
+                name="raster_pub_dataset_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.raster_dataset}: v{self.version.version_number} ({self.status})"
+
+
+class RasterRenderSettings(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    publication = models.OneToOneField(
+        RasterPublication,
+        on_delete=models.CASCADE,
+        related_name="render_settings",
+    )
+    mode = models.CharField(
+        max_length=16,
+        choices=RasterRenderMode.choices,
+        default=RasterRenderMode.SINGLE_BAND,
+    )
+    bands = models.JSONField(default=list)
+    rescale = models.JSONField(default=list)
+    colormap_name = models.CharField(max_length=64, blank=True)
+    resampling = models.CharField(max_length=32, default="bilinear")
+    opacity = models.FloatField(default=1.0)
+    revision = models.PositiveIntegerField(default=1)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="updated_raster_render_settings",
+        null=True,
+        blank=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(opacity__gte=0.0, opacity__lte=1.0),
+                name="raster_render_opacity_range",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Render settings for {self.publication}"
