@@ -48,6 +48,9 @@ exclude = ["**/migrations/*.py"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "DJ"]
 
+[tool.ruff.lint.per-file-ignores]
+"modules/uploads/services.py" = ["SIM105"]
+
 [tool.mypy]
 python_version = "3.13"
 plugins = ["mypy_django_plugin.main"]
