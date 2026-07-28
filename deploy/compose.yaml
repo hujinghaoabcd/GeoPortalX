@@ -104,13 +104,16 @@ services:
 
   martin:
     image: ghcr.io/maplibre/martin:v1.10.1
+    command: ["--config", "/config/martin.yaml"]
     environment:
       DATABASE_URL: postgresql://geoportalx:geoportalx@postgis:5432/geoportalx
     depends_on:
       postgis:
         condition: service_healthy
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
+    volumes:
+      - ./martin.yaml:/config/martin.yaml:ro
 
   titiler:
     image: ghcr.io/developmentseed/titiler:latest

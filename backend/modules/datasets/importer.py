@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ from django.db import connection, transaction
 
 from .exceptions import VectorImportError
 from .models import VectorLayer
+from .profiling import profile_vector_table
 
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
@@ -26,6 +28,11 @@ class ImportedLayerMetadata:
     feature_count: int
     field_schema: list[dict[str, Any]]
     extent: Polygon | None
+    quality_report: dict[str, Any]
+    field_statistics: list[dict[str, Any]]
+    tile_source_id: str
+    min_zoom: int
+    max_zoom: int
 
 
 def import_vector_layer(*, source: Path, layer: VectorLayer) -> ImportedLayerMetadata:
@@ -60,11 +67,24 @@ def import_vector_layer(*, source: Path, layer: VectorLayer) -> ImportedLayerMet
             layer_id=layer.id.hex,
         )
         _analyze_table(staging_schema, staging_table)
+        profile = profile_vector_table(
+            schema=staging_schema,
+            table=staging_table,
+            geometry_column=metadata.geometry_column,
+            field_schema=metadata.field_schema,
+            feature_count=metadata.feature_count,
+        )
         _promote_staging_table(
             staging_schema=staging_schema,
             staging_table=staging_table,
             target_schema=schema,
             target_table=final_table,
+        )
+        _set_martin_table_comment(
+            schema=schema,
+            table=final_table,
+            layer=layer,
+            metadata=metadata,
         )
     except Exception:
         _drop_table(staging_schema, staging_table)
@@ -80,6 +100,11 @@ def import_vector_layer(*, source: Path, layer: VectorLayer) -> ImportedLayerMet
         feature_count=metadata.feature_count,
         field_schema=metadata.field_schema,
         extent=metadata.extent,
+        quality_report=profile.quality_report,
+        field_statistics=profile.field_statistics,
+        tile_source_id=final_table,
+        min_zoom=int(settings.VECTOR_TILE_MIN_ZOOM),
+        max_zoom=int(settings.VECTOR_TILE_MAX_ZOOM),
     )
 
 
@@ -227,6 +252,11 @@ def _inspect_imported_table(schema: str, table: str) -> ImportedLayerMetadata:
         feature_count=feature_count,
         field_schema=field_schema,
         extent=extent,
+        quality_report={},
+        field_statistics=[],
+        tile_source_id="",
+        min_zoom=int(settings.VECTOR_TILE_MIN_ZOOM),
+        max_zoom=int(settings.VECTOR_TILE_MAX_ZOOM),
     )
 
 
@@ -285,6 +315,34 @@ def _promote_staging_table(
         cursor.execute(f"ALTER TABLE {source} SET SCHEMA {quoted_target_schema}")
         moved = _qualified_name(target_schema, staging_table)
         cursor.execute(f"ALTER TABLE {moved} RENAME TO {quoted_target_table}")
+
+
+def _set_martin_table_comment(
+    *,
+    schema: str,
+    table: str,
+    layer: VectorLayer,
+    metadata: ImportedLayerMetadata,
+) -> None:
+    bounds = list(metadata.extent.extent) if metadata.extent is not None else None
+    tilejson_patch = {
+        "name": layer.title,
+        "description": layer.vector_dataset.dataset.resource.description
+        or layer.vector_dataset.dataset.resource.title,
+        "minzoom": int(settings.VECTOR_TILE_MIN_ZOOM),
+        "maxzoom": int(settings.VECTOR_TILE_MAX_ZOOM),
+        "bounds": bounds,
+        "geoportalx": {
+            "resource_id": str(layer.vector_dataset.dataset.resource_id),
+            "dataset_id": str(layer.vector_dataset.dataset_id),
+            "layer_id": str(layer.id),
+        },
+    }
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"COMMENT ON TABLE {_qualified_name(schema, table)} IS %s",
+            [json.dumps(tilejson_patch, ensure_ascii=False, separators=(",", ":"))],
+        )
 
 
 def _qualified_name(schema: str, table: str) -> str:

@@ -8,10 +8,14 @@
 html, body, #app { width: 100%; height: 100%; margin: 0; }
 .shell { display: grid; grid-template-rows: 64px 1fr; width: 100%; height: 100%; }
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #fff; border-bottom: 1px solid #dbe3ef; }
-.topbar div:first-child { display: flex; align-items: baseline; gap: 12px; }
+.topbar > div:first-child { display: flex; align-items: baseline; gap: 12px; }
 .topbar strong { font-size: 20px; }
 .topbar span { color: #667085; font-size: 13px; }
+.status-group { display: flex; align-items: center; gap: 8px; }
 .status { font-size: 13px; padding: 6px 10px; border-radius: 999px; background: #eef2f7; }
-.status[data-status="ok"] { background: #e7f7ee; color: #146c43; }
+.status[data-status="ok"],
+.status[data-status="loaded"] { background: #e7f7ee; color: #146c43; }
+.status[data-status="loading"],
+.status[data-status="checking"] { background: #fff4d6; color: #8a5a00; }
 .status[data-status="unavailable"] { background: #fdecec; color: #a61b1b; }
 .map { min-height: 0; }
