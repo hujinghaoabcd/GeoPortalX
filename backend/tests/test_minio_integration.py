@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from modules.object_storage.client import clear_s3_client_cache
 from modules.object_storage import services
+from modules.object_storage.client import clear_s3_client_cache
 
 
 @pytest.mark.skipif(
