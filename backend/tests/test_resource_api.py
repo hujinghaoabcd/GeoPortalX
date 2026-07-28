@@ -5,6 +5,11 @@ import pytest
 from modules.accounts.models import User
 from modules.organizations.models import OrganizationRole
 from modules.organizations.services import create_organization, set_member_role
+from modules.permissions.models import (
+    PermissionAction,
+    PermissionSubjectType,
+    ResourcePermission,
+)
 from modules.resources.models import ResourceType, Visibility
 from modules.resources.services import create_resource
 
@@ -57,6 +62,53 @@ def test_resource_list_is_permission_filtered(client):
 
     assert response.status_code == 200
     assert [item["slug"] for item in response.json()] == ["public-map"]
+
+
+@pytest.mark.django_db
+def test_resource_list_includes_explicit_user_grant(client):
+    owner = User.objects.create_user(username="grant-owner", email="owner2@example.com", password="pw")
+    viewer = User.objects.create_user(username="grant-viewer", email="viewer2@example.com", password="pw")
+    resource = create_resource(
+        owner=owner,
+        resource_type=ResourceType.MAP,
+        title="Shared map",
+        slug="shared-map",
+    )
+    ResourcePermission.objects.create(
+        resource=resource,
+        subject_type=PermissionSubjectType.USER,
+        subject_id=viewer.id,
+        action=PermissionAction.VIEW,
+        granted_by=owner,
+    )
+    client.force_login(viewer)
+
+    response = client.get("/api/v1/resources/")
+
+    assert response.status_code == 200
+    assert [item["slug"] for item in response.json()] == ["shared-map"]
+
+
+@pytest.mark.django_db
+def test_organization_member_sees_organization_resource(client):
+    owner = User.objects.create_user(username="org-owner", email="org-owner@example.com", password="pw")
+    member = User.objects.create_user(username="org-member", email="org-member@example.com", password="pw")
+    organization = create_organization(owner=owner, name="Org", slug="org")
+    set_member_role(organization=organization, user=member, role=OrganizationRole.MEMBER)
+    create_resource(
+        owner=owner,
+        organization=organization,
+        resource_type=ResourceType.VECTOR_DATASET,
+        title="Organization roads",
+        slug="organization-roads",
+        visibility=Visibility.ORGANIZATION,
+    )
+    client.force_login(member)
+
+    response = client.get("/api/v1/resources/")
+
+    assert response.status_code == 200
+    assert [item["slug"] for item in response.json()] == ["organization-roads"]
 
 
 @pytest.mark.django_db
