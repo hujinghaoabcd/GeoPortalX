@@ -9,6 +9,9 @@ from ninja.errors import HttpError
 from ninja.security import SessionAuth
 from pydantic import Field
 
+from modules.dataset_inspection.exceptions import UnsupportedDatasetFormat
+from modules.dataset_inspection.types import inspection_job_for_filename
+from modules.jobs.services import create_and_dispatch_job
 from modules.permissions.models import PermissionAction
 from modules.resources.selectors import resource_accessible_to
 
@@ -74,6 +77,14 @@ class PresignedPartOut(Schema):
     method: str
     url: str
     expires_at: datetime
+
+
+class UploadInspectionJobOut(Schema):
+    id: UUID
+    job_type: str
+    queue: str
+    status: str
+    resource_id: UUID | None
 
 
 @router.get("/", response=list[UploadOut])
@@ -161,6 +172,28 @@ def abort_upload(request, upload_id: UUID):
         return abort_upload_session(session=session)
     except UploadLifecycleError as exc:
         raise HttpError(409, str(exc)) from exc
+
+
+@router.post("/{upload_id}/inspect", response={202: UploadInspectionJobOut})
+def inspect_upload(request, upload_id: UUID):
+    session = _get_upload(request.auth, upload_id)
+    if session.status != UploadStatus.COMPLETED:
+        raise HttpError(409, "Upload must be completed before inspection")
+    try:
+        spec = inspection_job_for_filename(session.original_filename)
+    except UnsupportedDatasetFormat as exc:
+        raise HttpError(400, str(exc)) from exc
+
+    job = create_and_dispatch_job(
+        created_by=request.auth,
+        job_type=spec.job_type,
+        input_parameters={"upload_id": str(session.id)},
+        resource=session.resource,
+        queue=spec.queue,
+        max_retries=1,
+    )
+    job.refresh_from_db()
+    return 202, job
 
 
 def _get_upload(user, upload_id: UUID) -> UploadSession:
