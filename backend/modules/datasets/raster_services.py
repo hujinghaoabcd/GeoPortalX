@@ -36,27 +36,37 @@ _ACTIVE_JOB_STATUSES = {
 def request_raster_publication(*, actor: User, dataset_id: UUID) -> RasterPublicationRequest:
     dataset = (
         Dataset.objects.select_for_update()
-        .select_related("resource", "current_version", "raster")
+        .select_related("resource")
         .get(pk=dataset_id)
     )
     if dataset.kind != DatasetKind.RASTER:
         raise ValueError("Dataset is not a raster dataset")
     if not has_resource_permission(actor, dataset.resource, PermissionAction.EDIT):
         raise PermissionError("User cannot publish this raster dataset")
-    if dataset.current_version is None:
+    version = dataset.current_version
+    if version is None:
         raise ValueError("Raster dataset has no active source version")
+    raster_dataset = dataset.raster
 
     publication, created = RasterPublication.objects.select_for_update().get_or_create(
-        version=dataset.current_version,
+        version=version,
         defaults={
-            "raster_dataset": dataset.raster,
+            "raster_dataset": raster_dataset,
             "created_by": actor,
         },
     )
     if publication.status == RasterPublicationStatus.READY:
-        return RasterPublicationRequest(publication=publication, job=publication.job, created=False)
+        return RasterPublicationRequest(
+            publication=publication,
+            job=publication.job,
+            created=False,
+        )
     if publication.job and publication.job.status in _ACTIVE_JOB_STATUSES:
-        return RasterPublicationRequest(publication=publication, job=publication.job, created=False)
+        return RasterPublicationRequest(
+            publication=publication,
+            job=publication.job,
+            created=False,
+        )
 
     publication.status = RasterPublicationStatus.PENDING
     publication.failure_code = ""
