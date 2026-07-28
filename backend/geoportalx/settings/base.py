@@ -7,6 +7,11 @@ env = environ.Env(
     DJANGO_DEBUG=(bool, False),
     DJANGO_ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173"]),
+    S3_PRESIGNED_URL_EXPIRY=(int, 15 * 60),
+    S3_UPLOAD_SESSION_EXPIRY=(int, 24 * 60 * 60),
+    S3_MULTIPART_PART_SIZE=(int, 64 * 1024 * 1024),
+    S3_MAX_UPLOAD_SIZE=(int, 50 * 1024 * 1024 * 1024),
+    S3_ABORT_INCOMPLETE_DAYS=(int, 2),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -28,6 +33,8 @@ INSTALLED_APPS = [
     "modules.resources",
     "modules.permissions",
     "modules.jobs",
+    "modules.object_storage",
+    "modules.uploads",
 ]
 
 MIDDLEWARE = [
@@ -114,5 +121,14 @@ CELERY_TASK_ROUTES = {
 S3_ENDPOINT_URL = env("S3_ENDPOINT_URL", default="http://localhost:9000")
 S3_ACCESS_KEY = env("S3_ACCESS_KEY", default="geoportalx")
 S3_SECRET_KEY = env("S3_SECRET_KEY", default="change-me")
+S3_SESSION_TOKEN = env("S3_SESSION_TOKEN", default="")
 S3_BUCKET = env("S3_BUCKET", default="geoportalx")
 S3_REGION = env("S3_REGION", default="us-east-1")
+S3_ADDRESSING_STYLE = env("S3_ADDRESSING_STYLE", default="path")
+S3_SERVER_SIDE_ENCRYPTION = env("S3_SERVER_SIDE_ENCRYPTION", default="")
+S3_PRESIGNED_URL_EXPIRY = env("S3_PRESIGNED_URL_EXPIRY")
+S3_UPLOAD_SESSION_EXPIRY = env("S3_UPLOAD_SESSION_EXPIRY")
+S3_MULTIPART_PART_SIZE = env("S3_MULTIPART_PART_SIZE")
+S3_MAX_UPLOAD_SIZE = env("S3_MAX_UPLOAD_SIZE")
+S3_ABORT_INCOMPLETE_DAYS = env("S3_ABORT_INCOMPLETE_DAYS")
+S3_CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS
