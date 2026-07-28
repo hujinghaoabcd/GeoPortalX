@@ -103,7 +103,7 @@ services:
       - ../backend:/app
 
   martin:
-    image: ghcr.io/maplibre/martin:v1.10.1
+    image: ghcr.io/maplibre/martin:1.11.0
     command: ["--config", "/config/martin.yaml"]
     environment:
       DATABASE_URL: postgresql://geoportalx:geoportalx@postgis:5432/geoportalx
