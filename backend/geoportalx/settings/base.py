@@ -24,7 +24,9 @@ INSTALLED_APPS = [
     "django.contrib.gis",
     "corsheaders",
     "modules.accounts",
+    "modules.organizations",
     "modules.resources",
+    "modules.permissions",
     "modules.jobs",
 ]
 
@@ -58,7 +60,12 @@ TEMPLATES = [
     }
 ]
 
-DATABASES = {"default": env.db("DATABASE_URL", default="postgis://geoportalx:geoportalx@localhost:5432/geoportalx")}
+DATABASES = {
+    "default": env.db(
+        "DATABASE_URL",
+        default="postgis://geoportalx:geoportalx@localhost:5432/geoportalx",
+    )
+}
 DATABASES["default"]["ENGINE"] = "django.contrib.gis.db.backends.postgis"
 
 AUTH_USER_MODEL = "accounts.User"
