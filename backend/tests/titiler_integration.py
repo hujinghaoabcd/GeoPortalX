@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -68,10 +69,8 @@ def setup() -> None:
         check=True,
     )
     client = _client()
-    try:
+    with suppress(client.exceptions.BucketAlreadyOwnedByYou):
         client.create_bucket(Bucket=BUCKET)
-    except client.exceptions.BucketAlreadyOwnedByYou:
-        pass
     client.upload_file(
         str(cog),
         BUCKET,
