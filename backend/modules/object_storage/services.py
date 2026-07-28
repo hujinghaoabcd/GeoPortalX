@@ -1,5 +1,9 @@
+import hashlib
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from botocore.exceptions import ClientError
 from django.conf import settings
@@ -19,6 +23,18 @@ class StoredObject:
     etag: str
     version_id: str
     content_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadedObject:
+    bucket: str
+    key: str
+    path: Path
+    size: int
+    etag: str
+    version_id: str
+    content_type: str
+    checksum_sha256: str
 
 
 def _client_error_code(exc: ClientError) -> str:
@@ -206,8 +222,82 @@ def inspect_object(*, key: str) -> StoredObject:
     )
 
 
+def download_object(
+    *,
+    key: str,
+    destination: Path,
+    bucket: str | None = None,
+    version_id: str = "",
+    chunk_size: int = 8 * 1024 * 1024,
+) -> DownloadedObject:
+    """Stream an object into a temporary file and atomically publish it locally."""
+
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    target_bucket = bucket or settings.S3_BUCKET
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.part")
+    parameters: dict[str, Any] = {"Bucket": target_bucket, "Key": key}
+    if version_id:
+        parameters["VersionId"] = version_id
+
+    response: dict[str, Any] | None = None
+    body = None
+    try:
+        response = get_s3_client().get_object(**parameters)
+        body = response["Body"]
+        digest = hashlib.sha256()
+        bytes_written = 0
+        with temporary.open("xb") as stream:
+            for chunk in body.iter_chunks(chunk_size=chunk_size):
+                if not chunk:
+                    continue
+                stream.write(chunk)
+                digest.update(chunk)
+                bytes_written += len(chunk)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        expected_size = int(response["ContentLength"])
+        if bytes_written != expected_size:
+            raise ObjectStorageError(
+                f"Object download was truncated: expected {expected_size}, got {bytes_written}"
+            )
+        os.replace(temporary, destination)
+        return DownloadedObject(
+            bucket=target_bucket,
+            key=key,
+            path=destination,
+            size=bytes_written,
+            etag=str(response.get("ETag", "")).strip('"'),
+            version_id=str(response.get("VersionId", version_id)),
+            content_type=str(response.get("ContentType", "application/octet-stream")),
+            checksum_sha256=digest.hexdigest(),
+        )
+    except ClientError as exc:
+        _remove_temporary_file(temporary)
+        raise ObjectStorageError("Could not download object") from exc
+    except ObjectStorageError:
+        _remove_temporary_file(temporary)
+        raise
+    except (KeyError, OSError, TypeError, ValueError) as exc:
+        _remove_temporary_file(temporary)
+        raise ObjectStorageError("Could not materialize object") from exc
+    finally:
+        if body is not None:
+            body.close()
+
+
 def delete_object(*, key: str) -> None:
     try:
         get_s3_client().delete_object(Bucket=settings.S3_BUCKET, Key=key)
     except ClientError as exc:
         raise ObjectStorageError("Could not delete object") from exc
+
+
+def _remove_temporary_file(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
