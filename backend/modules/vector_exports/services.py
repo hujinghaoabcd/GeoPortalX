@@ -13,6 +13,8 @@ from modules.datasets.models import VectorLayer, VectorLayerStatus
 from modules.jobs.models import JobStatus
 from modules.jobs.services import create_and_dispatch_job, request_job_cancellation
 from modules.object_storage.publication import presign_download
+from modules.permissions.models import PermissionAction
+from modules.permissions.services import has_resource_permission
 from modules.vector_tiles.selectors import vector_layer_accessible_to
 
 from .models import VectorExport, VectorExportFormat, VectorExportStatus
@@ -45,6 +47,9 @@ def create_vector_export(
     layer = vector_layer_accessible_to(actor, layer_id)
     if layer is None:
         raise LookupError("Vector layer not found")
+    resource = layer.vector_dataset.dataset.resource
+    if not has_resource_permission(actor, resource, PermissionAction.DOWNLOAD):
+        raise LookupError("Vector layer not found")
     if layer.status != VectorLayerStatus.READY:
         raise VectorExportUnavailable("Vector layer is not ready")
     if layer.srid != 4326:
@@ -75,7 +80,7 @@ def create_vector_export(
         created_by=actor,
         job_type="vector-export",
         input_parameters={"vector_export_id": str(export.id)},
-        resource=layer.vector_dataset.dataset.resource,
+        resource=resource,
         queue="vector",
         max_retries=0,
     )
@@ -181,6 +186,9 @@ def synchronize_export_status(export: VectorExport) -> VectorExport:
 def create_download_grant(*, actor: User, export_id: UUID) -> DownloadGrant:
     export = get_vector_export(actor=actor, export_id=export_id)
     if export is None:
+        raise LookupError("Vector export not found")
+    resource = export.layer.vector_dataset.dataset.resource
+    if not has_resource_permission(actor, resource, PermissionAction.DOWNLOAD):
         raise LookupError("Vector export not found")
     if export.status != VectorExportStatus.READY:
         raise VectorExportUnavailable("Vector export is not ready")
