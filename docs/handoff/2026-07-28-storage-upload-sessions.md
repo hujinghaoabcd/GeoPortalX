@@ -16,7 +16,9 @@
 - User filenames are display metadata only. Object keys are generated from UUIDs.
 - Multipart completion is accepted only after contiguous part validation and an S3
   `HEAD` size check.
-- Incomplete multipart uploads are covered by a bucket lifecycle rule.
+- AWS/native S3 uses bucket-level CORS and incomplete-multipart lifecycle rules.
+- S3-compatible providers that do not implement those bucket APIs can use provider-level
+  CORS and stale-upload cleanup; the committed MinIO profile is configured this way.
 
 ## Object storage implementation
 
@@ -24,12 +26,20 @@ Module: `backend/modules/object_storage/`
 
 - `client.py`: cached Boto3 client using SigV4, configurable endpoint and addressing style.
 - `keys.py`: conservative extension extraction and UUID-based source keys.
-- `services.py`: bucket bootstrap, CORS, lifecycle, multipart initiation, part signing,
-  completion, abort, object inspection and deletion.
+- `services.py`: bucket bootstrap, provider-aware CORS and cleanup configuration, multipart
+  initiation, part signing, completion, abort, object inspection and deletion.
 - `manage.py ensure_storage`: idempotently creates and configures the canonical bucket.
 
 Development defaults use path-style addressing for MinIO. AWS deployments can set
 `S3_ADDRESSING_STYLE=virtual`.
+
+The bootstrap rules are intentionally provider-aware:
+
+- a native AWS endpoint treats bucket CORS or lifecycle failures as fatal;
+- a custom endpoint may return `NotImplemented`, `NotSupported` or `InvalidArgument` for
+  unsupported compatibility APIs;
+- in that case GeoPortalX continues only because the deployment profile must configure the
+  equivalent provider-level controls.
 
 ## Upload session model
 
@@ -106,6 +116,9 @@ S3_ABORT_INCOMPLETE_DAYS
 - MinIO has a health check.
 - `storage-init` runs `python manage.py ensure_storage` after MinIO becomes healthy.
 - Backend and Worker wait for successful storage initialization.
+- The MinIO profile configures browser CORS through `MINIO_API_CORS_ALLOW_ORIGIN`.
+- It configures stale multipart cleanup through `MINIO_API_STALE_UPLOADS_EXPIRY` and
+  `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL`.
 - The committed MinIO image is a reproducible development/CI fixture, not a production
   recommendation. Production must use a currently supported S3 provider or a reviewed,
   security-patched MinIO build.
@@ -122,20 +135,23 @@ Automated tests cover:
 - successful abort;
 - abort failure recovery;
 - API owner isolation;
-- bucket creation, CORS and incomplete-upload lifecycle configuration.
+- bucket creation and native CORS/lifecycle configuration;
+- provider fallback when bucket CORS or lifecycle APIs are unsupported.
 
-The `storage-integration` CI job starts a real MinIO container and performs:
+The isolated `storage-integration` CI job starts a real MinIO container and performs:
 
 ```text
 ensure bucket -> initiate multipart -> generate presigned URL -> HTTP PUT part
 -> complete multipart -> HEAD object -> verify size -> delete object
 ```
 
+It uses `geoportalx.settings.storage_integration`, so it does not load PostGIS or require GDAL.
+
 ## Known limitations
 
 - A declared SHA-256 checksum is recorded but not yet calculated against the completed object.
-- Expired database sessions do not yet have a scheduled cleanup command; object-store lifecycle
-  rules clean incomplete multipart data.
+- Expired database sessions do not yet have a scheduled cleanup command; native S3 lifecycle
+  or the selected provider's stale-upload cleanup removes incomplete multipart data.
 - Upload completion does not yet trigger vector or raster format inspection.
 - Browser upload UI, resumable client state and parallel part orchestration are not implemented.
 - Resource creation and upload-session creation remain separate operations.
