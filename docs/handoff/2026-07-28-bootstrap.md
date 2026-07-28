@@ -25,6 +25,12 @@
 - Central ResourcePermission model for users, groups, organizations, authenticated users,
   anonymous users and share links.
 - Central permission evaluator with permission implication, visibility rules and expiry checks.
+- Permission-subject selectors for user, organization, group, anonymous and share-link grants.
+- Permission-filtered Resource queryset using an `Exists` subquery rather than per-row checks.
+- Transactional Resource creation service with resource-type, visibility and organization-role checks.
+- Authenticated organization list, create and detail API endpoints.
+- Authenticated resource list, create and detail API endpoints.
+- Resource list filtering by resource type and organization ID.
 - Persistent Job ledger related to users and optional resources.
 - Row-locked Job state transitions for queueing, running, success, failure and cancellation.
 - Vue/TypeScript frontend with MapLibre GL JS 6 map bootstrap.
@@ -32,14 +38,33 @@
 - Reproducible `uv.lock` and `pnpm-lock.yaml` files.
 - GitHub Actions quality, migration, backend-test, frontend-typecheck and production-build checks.
 
+## Current API surface
+
+```text
+GET  /api/v1/health
+GET  /api/v1/organizations/
+POST /api/v1/organizations/
+GET  /api/v1/organizations/{slug}
+GET  /api/v1/resources/
+POST /api/v1/resources/
+GET  /api/v1/resources/{resource_id}
+```
+
+Organization and Resource routers currently use Django session authentication. Public catalog
+and token-based authentication remain separate later tasks.
+
 ## Tests implemented
 
 - API health response.
 - Organization owner membership invariant.
 - Member role reactivation and owner deactivation protection.
+- Authenticated organization API access and creation.
 - Resource owner permissions.
 - Public visibility and organization visibility.
+- Explicit user grants in permission-filtered resource listings.
 - Permission inheritance and expired grants.
+- Organization editor resource creation.
+- Rejection of organization resource creation by ordinary members.
 - Job lifecycle, invalid transitions and failure details.
 
 ## CI validation completed
@@ -55,8 +80,10 @@
 ## Known limitations
 
 - Full Docker Compose service-to-service startup has not yet been exercised in CI.
-- Authenticated organization and resource CRUD APIs are not yet exposed.
-- Permission-filtered Resource querysets have not yet been optimized for catalog listings.
+- Organization membership management endpoints are not yet exposed.
+- Resource update, archive, publish and permission-management endpoints are not yet exposed.
+- Session authentication is the initial API authentication mechanism; OIDC, API keys and other
+  token-based clients remain future work.
 - Martin authorization gateway and source registration are not yet implemented.
 - TiTiler currently uses direct development credentials; signed/authorized asset routing is pending.
 - The sample frontend style uses MapLibre demo tiles and will be replaced by configurable basemaps.
@@ -64,10 +91,9 @@
 
 ## Next tasks
 
-1. Add permission-filtered Resource queryset and selector services.
-2. Add authenticated organization and resource APIs.
-3. Integrate Celery tasks with persistent Job progress and cancellation.
-4. Add MinIO/S3 storage abstraction and bucket bootstrap command.
-5. Add upload-session models and safe multipart upload flow.
-6. Run the full Compose stack and add service health checks.
-7. Review and squash-merge bootstrap PR #1 when the foundation is accepted.
+1. Integrate Celery tasks with persistent Job progress, retries and cancellation.
+2. Add MinIO/S3 storage abstraction and bucket bootstrap command.
+3. Add upload-session models and safe multipart upload flow.
+4. Add resource update, publication and ACL-management APIs.
+5. Run the full Compose stack and add service health checks.
+6. Review and squash-merge bootstrap PR #1 when the foundation is accepted.
