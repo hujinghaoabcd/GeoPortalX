@@ -8,6 +8,7 @@ class JobStatus(models.TextChoices):
     PENDING = "PENDING", "Pending"
     QUEUED = "QUEUED", "Queued"
     RUNNING = "RUNNING", "Running"
+    RETRYING = "RETRYING", "Retrying"
     SUCCEEDED = "SUCCEEDED", "Succeeded"
     FAILED = "FAILED", "Failed"
     CANCELLED = "CANCELLED", "Cancelled"
@@ -26,6 +27,7 @@ class Job(models.Model):
     )
     priority = models.SmallIntegerField(default=0)
     progress = models.PositiveSmallIntegerField(default=0)
+    progress_message = models.CharField(max_length=255, blank=True)
     resource = models.ForeignKey(
         "resources.Resource",
         on_delete=models.SET_NULL,
@@ -34,10 +36,14 @@ class Job(models.Model):
         blank=True,
     )
     input_parameters = models.JSONField(default=dict, blank=True)
+    result_payload = models.JSONField(default=dict, blank=True)
     output_resources = models.JSONField(default=list, blank=True)
     error_code = models.CharField(max_length=100, blank=True)
     error_message = models.TextField(blank=True)
     retry_count = models.PositiveSmallIntegerField(default=0)
+    max_retries = models.PositiveSmallIntegerField(default=3)
+    cancellation_requested_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
