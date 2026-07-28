@@ -88,14 +88,27 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 
+GEOPORTAL_JOB_QUEUES = (
+    "system",
+    "import",
+    "vector",
+    "raster",
+    "processing",
+    "catalog",
+)
 CELERY_BROKER_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = None
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 60 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 55 * 60
 CELERY_TASK_DEFAULT_QUEUE = "system"
+CELERY_TASK_DEFAULT_PRIORITY = 0
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_TRANSPORT_OPTIONS = {"queue_order_strategy": "priority"}
 CELERY_TASK_ROUTES = {
-    "modules.jobs.tasks.run_health_probe": {"queue": "system"},
+    "modules.jobs.tasks.execute_job": {"queue": "system"},
 }
 
 S3_ENDPOINT_URL = env("S3_ENDPOINT_URL", default="http://localhost:9000")
