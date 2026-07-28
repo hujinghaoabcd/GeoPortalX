@@ -80,7 +80,7 @@ class ResourcePermission(models.Model):
         indexes = [
             models.Index(
                 fields=("resource", "subject_type", "subject_id"),
-                name="resource_permission_subject_idx",
+                name="res_perm_subject_idx",
             ),
         ]
 
