@@ -3,7 +3,7 @@ import json
 import pytest
 
 from modules.accounts.models import User
-from modules.object_storage.services import StoredObject
+from modules.object_storage.services import ObjectStorageError, StoredObject
 from modules.uploads import services as upload_services
 from modules.uploads.models import UploadStatus
 
@@ -16,14 +16,18 @@ def _user(username: str) -> User:
     )
 
 
-@pytest.mark.django_db
-def test_upload_session_uses_safe_generated_object_key(monkeypatch) -> None:
-    user = _user("uploader")
+def _init_upload(monkeypatch, upload_id: str) -> None:
     monkeypatch.setattr(
         upload_services.storage,
         "initiate_multipart_upload",
-        lambda **kwargs: "multipart-1",
+        lambda **kwargs: upload_id,
     )
+
+
+@pytest.mark.django_db
+def test_upload_session_uses_safe_generated_object_key(monkeypatch) -> None:
+    user = _user("uploader")
+    _init_upload(monkeypatch, "multipart-1")
 
     session = upload_services.create_upload_session(
         created_by=user,
@@ -43,11 +47,7 @@ def test_upload_session_uses_safe_generated_object_key(monkeypatch) -> None:
 @pytest.mark.django_db
 def test_upload_completion_verifies_stored_size(monkeypatch) -> None:
     user = _user("complete-owner")
-    monkeypatch.setattr(
-        upload_services.storage,
-        "initiate_multipart_upload",
-        lambda **kwargs: "multipart-2",
-    )
+    _init_upload(monkeypatch, "multipart-2")
     monkeypatch.setattr(
         upload_services.storage,
         "complete_multipart_upload",
@@ -85,11 +85,7 @@ def test_upload_completion_verifies_stored_size(monkeypatch) -> None:
 @pytest.mark.django_db
 def test_upload_completion_rejects_missing_parts(monkeypatch) -> None:
     user = _user("missing-parts-owner")
-    monkeypatch.setattr(
-        upload_services.storage,
-        "initiate_multipart_upload",
-        lambda **kwargs: "multipart-3",
-    )
+    _init_upload(monkeypatch, "multipart-3")
     session = upload_services.create_upload_session(
         created_by=user,
         original_filename="large.tif",
@@ -101,13 +97,54 @@ def test_upload_completion_rejects_missing_parts(monkeypatch) -> None:
 
 
 @pytest.mark.django_db
-def test_upload_abort_marks_session_aborted(monkeypatch) -> None:
-    user = _user("abort-owner")
+def test_size_mismatch_marks_upload_failed_and_deletes_object(monkeypatch) -> None:
+    user = _user("mismatch-owner")
+    deleted_keys: list[str] = []
+    _init_upload(monkeypatch, "multipart-mismatch")
     monkeypatch.setattr(
         upload_services.storage,
-        "initiate_multipart_upload",
-        lambda **kwargs: "multipart-4",
+        "complete_multipart_upload",
+        lambda **kwargs: {"ETag": '"etag"'},
     )
+    monkeypatch.setattr(
+        upload_services.storage,
+        "inspect_object",
+        lambda **kwargs: StoredObject(
+            bucket="geoportalx",
+            key=kwargs["key"],
+            size=7,
+            etag="etag",
+            version_id="",
+            content_type="application/octet-stream",
+        ),
+    )
+    monkeypatch.setattr(
+        upload_services.storage,
+        "delete_object",
+        lambda **kwargs: deleted_keys.append(kwargs["key"]),
+    )
+    session = upload_services.create_upload_session(
+        created_by=user,
+        original_filename="wrong-size.zip",
+        declared_size=8,
+    )
+
+    with pytest.raises(upload_services.UploadLifecycleError, match="size"):
+        upload_services.complete_upload_session(
+            session=session,
+            parts=[{"PartNumber": 1, "ETag": '"part"'}],
+        )
+
+    session.refresh_from_db()
+    assert session.status == UploadStatus.FAILED
+    assert session.failure_code == "UPLOAD_SIZE_MISMATCH"
+    assert deleted_keys == [session.object_key]
+
+
+@pytest.mark.django_db
+def test_upload_abort_marks_session_aborted(monkeypatch) -> None:
+    user = _user("abort-owner")
+    _init_upload(monkeypatch, "multipart-4")
     monkeypatch.setattr(
         upload_services.storage,
         "abort_multipart_upload",
@@ -126,14 +163,33 @@ def test_upload_abort_marks_session_aborted(monkeypatch) -> None:
 
 
 @pytest.mark.django_db
+def test_abort_failure_restores_previous_status(monkeypatch) -> None:
+    user = _user("abort-failure-owner")
+    _init_upload(monkeypatch, "multipart-abort-failure")
+
+    def fail_abort(**kwargs):
+        raise ObjectStorageError("storage unavailable")
+
+    monkeypatch.setattr(upload_services.storage, "abort_multipart_upload", fail_abort)
+    session = upload_services.create_upload_session(
+        created_by=user,
+        original_filename="retry-abort.tif",
+        declared_size=1024,
+    )
+
+    with pytest.raises(upload_services.UploadLifecycleError, match="storage unavailable"):
+        upload_services.abort_upload_session(session=session)
+
+    session.refresh_from_db()
+    assert session.status == UploadStatus.UPLOADING
+    assert session.failure_code == "UPLOAD_ABORT_FAILED"
+
+
+@pytest.mark.django_db
 def test_upload_api_isolates_sessions_by_owner(client, monkeypatch) -> None:
     owner = _user("api-upload-owner")
     other = _user("api-upload-other")
-    monkeypatch.setattr(
-        upload_services.storage,
-        "initiate_multipart_upload",
-        lambda **kwargs: "multipart-api",
-    )
+    _init_upload(monkeypatch, "multipart-api")
 
     client.force_login(owner)
     response = client.post(
