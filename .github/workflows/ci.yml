@@ -212,10 +212,21 @@ jobs:
             ghcr.io/maplibre/martin:1.11.0 \
             --config /config/martin.yaml
       - name: Verify Martin TileJSON and MVT
-        run: uv run python tests/martin_integration.py check
-      - name: Show Martin logs on failure
+        run: |
+          set +e
+          uv run python tests/martin_integration.py check 2>&1 | tee martin-integration.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - name: Capture Martin logs on failure
         if: failure()
-        run: docker logs geoportalx-martin
+        run: docker logs geoportalx-martin 2>&1 | tee martin-container.log || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: martin-integration-failure-log
+          path: |
+            backend/martin-integration.log
+            backend/martin-container.log
 
   frontend:
     runs-on: ubuntu-latest
