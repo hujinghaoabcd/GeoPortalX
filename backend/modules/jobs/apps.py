@@ -12,3 +12,4 @@ class JobsConfig(AppConfig):
         import_module("modules.jobs.handlers")
         import_module("modules.dataset_inspection.handlers")
         import_module("modules.datasets.handlers")
+        import_module("modules.vector_exports.handlers")

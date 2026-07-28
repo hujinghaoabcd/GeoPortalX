@@ -46,7 +46,7 @@ Status: implementation ready for review
 - [x] Internal-only Martin deployment and deterministic source IDs
 - [x] Minimal MapLibre vector preview rendering
 - [x] Permission-aware feature detail, keyset pagination, bbox query and identify
-- [ ] Asynchronous GeoJSON/CSV/GeoPackage download
+- [x] Asynchronous GeoJSON/CSV/GeoPackage export and signed delivery
 - [ ] Dataset version replacement and rollback
 - [ ] Import reconciliation and orphan-table cleanup
 - [ ] Full dataset browser and preview controls
