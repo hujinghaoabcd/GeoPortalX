@@ -2,7 +2,7 @@
 
 GeoPortalX is a lightweight, full-featured geospatial data portal and web mapping platform.
 
-> 当前状态：项目初始化阶段。二维地图引擎固定为 MapLibre GL JS；项目不依赖 OMap 或 OpenLayers。
+> 当前状态：基础架构开发中。二维地图引擎固定为 MapLibre GL JS；项目不依赖 OMap 或 OpenLayers。
 
 ## 目标
 
@@ -21,6 +21,22 @@ GeoPortalX 面向空间数据管理、目录检索、在线制图、地图发布
 - Deployment: Docker Compose
 - Optional compatibility: GeoServer
 
+## 开发启动
+
+```bash
+cp .env.example .env
+docker compose -f deploy/compose.yaml up --build
+```
+
+初始服务地址：
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8000/api/v1/`
+- OpenAPI: `http://localhost:8000/api/v1/docs`
+- Martin: `http://localhost:3000`
+- TiTiler: `http://localhost:8001`
+- MinIO console: `http://localhost:9001`
+
 ## 核心原则
 
 1. 一个资源只保存一次。
@@ -30,4 +46,10 @@ GeoPortalX 面向空间数据管理、目录检索、在线制图、地图发布
 5. Martin、TiTiler、pycsw 和其他协议服务是统一资源模型之上的适配层。
 6. 二维地图只使用 MapLibre GL JS。
 
-详细设计将在 `docs/` 中持续维护。
+## 文档
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Technology stack](docs/TECH_STACK.md)
+- [Project structure](docs/PROJECT_STRUCTURE.md)
+- [Development plan](docs/DEVELOPMENT_PLAN.md)
+- [Roadmap](docs/ROADMAP.md)

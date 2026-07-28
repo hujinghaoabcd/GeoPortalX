@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      UV_NO_PROGRESS: "1"
+      DJANGO_SECRET_KEY: ci-secret
+      DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra dev --no-install-project
+      - name: Lint backend
+        run: |
+          set +e
+          uv run ruff check . --output-format=concise 2>&1 | tee ruff.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-ruff-failure-log
+          path: backend/ruff.log
+      - run: uv run python -m compileall geoportalx modules tests
+
+  backend-test:
+    needs: backend-quality
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: geoportalx_test
+          POSTGRES_USER: geoportalx
+          POSTGRES_PASSWORD: geoportalx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U geoportalx -d geoportalx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      UV_NO_PROGRESS: "1"
+      DJANGO_SECRET_KEY: ci-secret
+      DATABASE_URL: postgis://geoportalx:geoportalx@localhost:5432/geoportalx_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gdal-bin libgdal-dev libgeos-dev libproj-dev
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra dev --no-install-project
+      - run: uv run python manage.py makemigrations --check --dry-run
+      - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build

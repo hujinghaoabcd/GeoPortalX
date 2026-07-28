@@ -1,0 +1,122 @@
+name: geoportalx
+
+services:
+  postgis:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: geoportalx
+      POSTGRES_USER: geoportalx
+      POSTGRES_PASSWORD: geoportalx
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoportalx -d geoportalx"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis_data:/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: geoportalx
+      MINIO_ROOT_PASSWORD: change-me-now
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  backend:
+    build:
+      context: ../backend
+    env_file:
+      - ../.env
+    depends_on:
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+
+  worker:
+    build:
+      context: ../backend
+    command: celery -A geoportalx worker -l INFO -Q import,vector,raster,processing,catalog,system
+    env_file:
+      - ../.env
+    depends_on:
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+
+  scheduler:
+    build:
+      context: ../backend
+    command: celery -A geoportalx beat -l INFO
+    env_file:
+      - ../.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+
+  martin:
+    image: ghcr.io/maplibre/martin:v1.10.1
+    environment:
+      DATABASE_URL: postgresql://geoportalx:geoportalx@postgis:5432/geoportalx
+    depends_on:
+      postgis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    environment:
+      AWS_ACCESS_KEY_ID: geoportalx
+      AWS_SECRET_ACCESS_KEY: change-me-now
+      AWS_S3_ENDPOINT: http://minio:9000
+      AWS_HTTPS: "NO"
+      AWS_VIRTUAL_HOSTING: "FALSE"
+    depends_on:
+      - minio
+    ports:
+      - "8001:8000"
+
+  frontend:
+    build:
+      context: ../frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  postgis_data:
+  redis_data:
+  minio_data:
+  frontend_node_modules:

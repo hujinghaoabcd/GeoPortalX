@@ -1,0 +1,1 @@
+"""Central resource-permission domain."""
