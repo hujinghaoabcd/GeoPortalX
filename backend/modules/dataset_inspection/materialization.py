@@ -48,7 +48,9 @@ def materialize_completed_upload(upload: UploadSession) -> Iterator[Materialized
                 f"Stored object size changed: expected {expected_size}, got {downloaded.size}"
             )
         if upload.checksum_sha256 and downloaded.checksum_sha256 != upload.checksum_sha256:
-            raise UploadMaterializationError("Uploaded object SHA-256 does not match the declaration")
+            raise UploadMaterializationError(
+                "Uploaded object SHA-256 does not match the declaration"
+            )
 
         yield MaterializedUpload(
             upload_id=str(upload.id),
