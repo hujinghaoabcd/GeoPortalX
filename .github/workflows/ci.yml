@@ -20,30 +20,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
-      - name: Install backend dependencies
-        run: |
-          set +e
-          uv sync --extra dev --no-install-project > uv-sync.log 2>&1
-          status=$?
-          cat uv-sync.log
-          exit $status
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: backend-quality-failure-log
-          path: backend/uv-sync.log
-      - name: Lint backend
-        run: |
-          set +e
-          uv run ruff check . > ruff.log 2>&1
-          status=$?
-          cat ruff.log
-          exit $status
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: backend-ruff-failure-log
-          path: backend/ruff.log
+      - run: uv sync --extra dev --no-install-project
+      - run: uv run ruff check .
       - run: uv run python -m compileall geoportalx modules tests
 
   backend-test:
@@ -79,23 +57,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --extra dev --no-install-project
-      - name: Generate initial migrations
-        run: |
-          set +e
-          uv run python manage.py makemigrations accounts organizations resources permissions jobs > migrations.log 2>&1
-          status=$?
-          cat migrations.log
-          exit $status
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: backend-migrations-failure-log
-          path: backend/migrations.log
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: generated-migrations
-          path: backend/modules/**/migrations/*.py
+      - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run pytest
 
   frontend:
@@ -112,20 +74,5 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - uses: actions/upload-artifact@v4
-        with:
-          name: generated-frontend-lock
-          path: frontend/pnpm-lock.yaml
-      - name: Type-check frontend
-        run: |
-          set +e
-          pnpm typecheck > typecheck.log 2>&1
-          status=$?
-          cat typecheck.log
-          exit $status
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: frontend-typecheck-failure-log
-          path: frontend/typecheck.log
+      - run: pnpm typecheck
       - run: pnpm build
