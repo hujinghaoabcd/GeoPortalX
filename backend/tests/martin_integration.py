@@ -10,34 +10,36 @@ import psycopg
 
 def setup_database() -> None:
     database_url = os.environ["MARTIN_TEST_DATABASE_URL"]
-    with psycopg.connect(database_url, autocommit=True) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis")
-            cursor.execute("CREATE SCHEMA IF NOT EXISTS geoportalx_data")
-            cursor.execute("DROP TABLE IF EXISTS geoportalx_data.v_integration")
-            cursor.execute(
-                """
-                CREATE TABLE geoportalx_data.v_integration (
-                    gx_fid bigserial PRIMARY KEY,
-                    name text,
-                    geom geometry(Point, 4326) NOT NULL
-                )
-                """
+    with (
+        psycopg.connect(database_url, autocommit=True) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS geoportalx_data")
+        cursor.execute("DROP TABLE IF EXISTS geoportalx_data.v_integration")
+        cursor.execute(
+            """
+            CREATE TABLE geoportalx_data.v_integration (
+                gx_fid bigserial PRIMARY KEY,
+                name text,
+                geom geometry(Point, 4326) NOT NULL
             )
-            cursor.execute(
-                """
-                INSERT INTO geoportalx_data.v_integration (name, geom)
-                VALUES ('origin', ST_SetSRID(ST_MakePoint(0, 0), 4326))
-                """
-            )
-            cursor.execute(
-                """
-                CREATE INDEX v_integration_geom_gix
-                ON geoportalx_data.v_integration
-                USING GIST (geom)
-                """
-            )
-            cursor.execute("ANALYZE geoportalx_data.v_integration")
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO geoportalx_data.v_integration (name, geom)
+            VALUES ('origin', ST_SetSRID(ST_MakePoint(0, 0), 4326))
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX v_integration_geom_gix
+            ON geoportalx_data.v_integration
+            USING GIST (geom)
+            """
+        )
+        cursor.execute("ANALYZE geoportalx_data.v_integration")
 
 
 def check_martin() -> None:
