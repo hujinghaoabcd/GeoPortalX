@@ -103,6 +103,9 @@ jobs:
             --publish 9000:9000 --publish 9001:9001 \
             --env MINIO_ROOT_USER=geoportalx \
             --env MINIO_ROOT_PASSWORD=change-me-now \
+            --env MINIO_API_CORS_ALLOW_ORIGIN=http://localhost:5173 \
+            --env MINIO_API_STALE_UPLOADS_EXPIRY=48h \
+            --env MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=1h \
             minio/minio:RELEASE.2025-09-07T16-13-09Z \
             server /data --console-address :9001
           for attempt in {1..30}; do
