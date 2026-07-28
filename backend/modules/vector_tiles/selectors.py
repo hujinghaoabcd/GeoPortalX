@@ -4,10 +4,9 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import QuerySet
 
 from modules.accounts.models import User
+from modules.datasets.models import VectorLayer, VectorLayerStatus
 from modules.permissions.models import PermissionAction
 from modules.resources.selectors import resources_accessible_to
-
-from modules.datasets.models import VectorLayer, VectorLayerStatus
 
 
 def vector_layers_accessible_to(
