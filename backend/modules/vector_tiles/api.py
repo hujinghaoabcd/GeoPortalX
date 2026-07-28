@@ -160,7 +160,7 @@ def _tile_url(request, layer: VectorLayer) -> str:
         f"/api/v1/vector-layers/{layer.id}/tiles/"
         f"{{z}}/{{x}}/{{y}}?version={layer.version_id}"
     )
-    return request.build_absolute_uri(path)
+    return f"{request.scheme}://{request.get_host()}{path}"
 
 
 def _bounds(layer: VectorLayer) -> list[float]:
