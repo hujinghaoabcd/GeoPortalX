@@ -43,6 +43,20 @@ class CorsUnsupportedClient(FakeS3Client):
         )
 
 
+class LifecycleUnsupportedClient(FakeS3Client):
+    def put_bucket_lifecycle_configuration(self, **kwargs):
+        raise ClientError(
+            {
+                "Error": {
+                    "Code": "InvalidArgument",
+                    "Message": "Lifecycle schema is not supported",
+                },
+                "ResponseMetadata": {"HTTPStatusCode": 400},
+            },
+            "PutBucketLifecycleConfiguration",
+        )
+
+
 def test_safe_extension_discards_untrusted_suffixes() -> None:
     assert safe_extension("roads.GPKG") == ".gpkg"
     assert safe_extension("../../roads.shp") == ".shp"
@@ -79,3 +93,20 @@ def test_unsupported_bucket_cors_does_not_block_bootstrap(monkeypatch, settings)
 
     assert client.created == [{"Bucket": "geoportalx-test"}]
     assert len(client.lifecycle) == 1
+
+
+def test_custom_endpoint_can_use_provider_managed_multipart_cleanup(
+    monkeypatch,
+    settings,
+) -> None:
+    client = LifecycleUnsupportedClient()
+    settings.S3_BUCKET = "geoportalx-test"
+    settings.S3_REGION = "us-east-1"
+    settings.S3_ENDPOINT_URL = "http://minio:9000"
+    settings.S3_CORS_ALLOWED_ORIGINS = []
+    settings.S3_ABORT_INCOMPLETE_DAYS = 2
+    monkeypatch.setattr(services, "get_s3_client", lambda: client)
+
+    services.ensure_bucket()
+
+    assert client.created == [{"Bucket": "geoportalx-test"}]
