@@ -89,6 +89,10 @@ jobs:
       S3_ADDRESSING_STYLE: path
     steps:
       - uses: actions/checkout@v4
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gdal-bin libgdal-dev libgeos-dev libproj-dev
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
