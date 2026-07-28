@@ -27,8 +27,8 @@ Status: implementation ready for review
 - [x] Persistent Job ledger and initial migration
 - [x] Validated, row-locked Job lifecycle transitions
 - [ ] Celery task progress reporting and cancellation integration
-- [ ] Permission-filtered Resource queryset and service layer
-- [ ] Authenticated organization and resource APIs
+- [x] Permission-filtered Resource queryset and service layer
+- [x] Authenticated organization and resource APIs
 - [ ] MinIO/S3 storage abstraction
 - [ ] Audit log foundation
 
