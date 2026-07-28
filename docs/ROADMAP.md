@@ -45,7 +45,8 @@ Status: implementation ready for review
 - [x] Permission-aware Martin TileJSON and MVT proxy
 - [x] Internal-only Martin deployment and deterministic source IDs
 - [x] Minimal MapLibre vector preview rendering
-- [ ] Feature identify and download
+- [x] Permission-aware feature detail, keyset pagination, bbox query and identify
+- [ ] Asynchronous GeoJSON/CSV/GeoPackage download
 - [ ] Dataset version replacement and rollback
 - [ ] Import reconciliation and orphan-table cleanup
 - [ ] Full dataset browser and preview controls
