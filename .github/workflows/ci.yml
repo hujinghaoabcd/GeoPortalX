@@ -32,9 +32,10 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --no-install-project
       - run: uv run ruff check .
       - run: uv run python -m compileall geoportalx modules
+      - run: uv run python manage.py makemigrations --check --dry-run
       - run: uv run pytest
 
   frontend:
@@ -50,8 +51,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
