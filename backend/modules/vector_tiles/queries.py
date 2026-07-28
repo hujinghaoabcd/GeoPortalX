@@ -70,9 +70,9 @@ def list_layer_features(
 ) -> FeaturePage:
     _validate_layer(layer)
     bounded_limit = _bounded_limit(limit, maximum=int(settings.VECTOR_FEATURE_MAX_LIMIT))
-    cursor_value = 0 if cursor is None else cursor
-    if cursor_value < 0:
+    if cursor is not None and cursor < 0:
         raise FeatureQueryValidationError("cursor must be zero or greater")
+    cursor_value = -1 if cursor is None else cursor
     selected_fields = _selected_fields(layer, requested_fields)
 
     fid = _quote("gx_fid")
