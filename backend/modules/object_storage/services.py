@@ -1,5 +1,6 @@
 import hashlib
 import os
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -297,7 +298,5 @@ def delete_object(*, key: str) -> None:
 
 
 def _remove_temporary_file(path: Path) -> None:
-    try:
+    with suppress(OSError):
         path.unlink(missing_ok=True)
-    except OSError:
-        pass
