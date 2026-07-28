@@ -31,6 +31,11 @@ env = environ.Env(
     VECTOR_FEATURE_MAX_RESPONSE_BYTES=(int, 5 * 1024 * 1024),
     VECTOR_IDENTIFY_MAX_LIMIT=(int, 25),
     VECTOR_IDENTIFY_MAX_TOLERANCE_METERS=(float, 5_000.0),
+    VECTOR_EXPORT_TIMEOUT=(int, 60 * 60),
+    VECTOR_EXPORT_MAX_BYTES=(int, 5 * 1024 * 1024 * 1024),
+    VECTOR_EXPORT_RETENTION_SECONDS=(int, 7 * 24 * 60 * 60),
+    VECTOR_EXPORT_MAX_ACTIVE_PER_USER=(int, 5),
+    VECTOR_EXPORT_MAX_FIELDS=(int, 200),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -55,6 +60,7 @@ INSTALLED_APPS = [
     "modules.object_storage",
     "modules.uploads",
     "modules.datasets",
+    "modules.vector_exports",
 ]
 
 MIDDLEWARE = [
@@ -188,3 +194,17 @@ if VECTOR_FEATURE_MAX_LIMIT <= 0 or VECTOR_FEATURE_MAX_FIELDS <= 0:
     raise ValueError("Vector feature query limits must be positive")
 if VECTOR_IDENTIFY_MAX_LIMIT <= 0 or VECTOR_IDENTIFY_MAX_TOLERANCE_METERS <= 0:
     raise ValueError("Vector identify limits must be positive")
+
+VECTOR_EXPORT_TIMEOUT = env("VECTOR_EXPORT_TIMEOUT")
+VECTOR_EXPORT_MAX_BYTES = env("VECTOR_EXPORT_MAX_BYTES")
+VECTOR_EXPORT_RETENTION_SECONDS = env("VECTOR_EXPORT_RETENTION_SECONDS")
+VECTOR_EXPORT_MAX_ACTIVE_PER_USER = env("VECTOR_EXPORT_MAX_ACTIVE_PER_USER")
+VECTOR_EXPORT_MAX_FIELDS = env("VECTOR_EXPORT_MAX_FIELDS")
+if min(
+    VECTOR_EXPORT_TIMEOUT,
+    VECTOR_EXPORT_MAX_BYTES,
+    VECTOR_EXPORT_RETENTION_SECONDS,
+    VECTOR_EXPORT_MAX_ACTIVE_PER_USER,
+    VECTOR_EXPORT_MAX_FIELDS,
+) <= 0:
+    raise ValueError("Vector export limits must be positive")
