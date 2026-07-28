@@ -261,15 +261,17 @@ def activate_ready_dataset_version(
         raise ValueError("Only ready dataset versions can be activated")
 
     layers = list(version.vector_layers.all()) if dataset.kind == DatasetKind.VECTOR else []
-    if dataset.kind == DatasetKind.VECTOR:
-        if not layers or any(
+    if dataset.kind == DatasetKind.VECTOR and (
+        not layers
+        or any(
             layer.status != VectorLayerStatus.READY
             or not layer.db_schema
             or not layer.db_table
             or not layer.tile_source_id
             for layer in layers
-        ):
-            raise ValueError("All version layers must be ready before activation")
+        )
+    ):
+        raise ValueError("All version layers must be ready before activation")
 
     already_finalized = (
         dataset.current_version_id == version.id
