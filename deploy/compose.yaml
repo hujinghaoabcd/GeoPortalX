@@ -32,6 +32,7 @@ services:
     environment:
       MINIO_ROOT_USER: geoportalx
       MINIO_ROOT_PASSWORD: change-me-now
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
