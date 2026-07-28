@@ -25,6 +25,12 @@ env = environ.Env(
     MARTIN_REQUEST_TIMEOUT=(float, 10.0),
     MARTIN_MAX_TILE_BYTES=(int, 10 * 1024 * 1024),
     VECTOR_TILE_PUBLIC_CACHE_SECONDS=(int, 60),
+    VECTOR_FEATURE_MAX_LIMIT=(int, 500),
+    VECTOR_FEATURE_MAX_FIELDS=(int, 50),
+    VECTOR_FEATURE_QUERY_TIMEOUT_MS=(int, 5_000),
+    VECTOR_FEATURE_MAX_RESPONSE_BYTES=(int, 5 * 1024 * 1024),
+    VECTOR_IDENTIFY_MAX_LIMIT=(int, 25),
+    VECTOR_IDENTIFY_MAX_TOLERANCE_METERS=(float, 5_000.0),
 )
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
@@ -74,7 +80,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
+                "django.contrib.auth.context_processors.auth",
                 "django.template.context_processors.request",
             ],
         },
@@ -170,3 +176,15 @@ MARTIN_INTERNAL_URL = env("MARTIN_INTERNAL_URL", default="http://localhost:3000"
 MARTIN_REQUEST_TIMEOUT = env("MARTIN_REQUEST_TIMEOUT")
 MARTIN_MAX_TILE_BYTES = env("MARTIN_MAX_TILE_BYTES")
 VECTOR_TILE_PUBLIC_CACHE_SECONDS = env("VECTOR_TILE_PUBLIC_CACHE_SECONDS")
+VECTOR_FEATURE_MAX_LIMIT = env("VECTOR_FEATURE_MAX_LIMIT")
+VECTOR_FEATURE_MAX_FIELDS = env("VECTOR_FEATURE_MAX_FIELDS")
+VECTOR_FEATURE_QUERY_TIMEOUT_MS = env("VECTOR_FEATURE_QUERY_TIMEOUT_MS")
+VECTOR_FEATURE_MAX_RESPONSE_BYTES = env("VECTOR_FEATURE_MAX_RESPONSE_BYTES")
+VECTOR_IDENTIFY_MAX_LIMIT = env("VECTOR_IDENTIFY_MAX_LIMIT")
+VECTOR_IDENTIFY_MAX_TOLERANCE_METERS = env(
+    "VECTOR_IDENTIFY_MAX_TOLERANCE_METERS"
+)
+if VECTOR_FEATURE_MAX_LIMIT <= 0 or VECTOR_FEATURE_MAX_FIELDS <= 0:
+    raise ValueError("Vector feature query limits must be positive")
+if VECTOR_IDENTIFY_MAX_LIMIT <= 0 or VECTOR_IDENTIFY_MAX_TOLERANCE_METERS <= 0:
+    raise ValueError("Vector identify limits must be positive")
