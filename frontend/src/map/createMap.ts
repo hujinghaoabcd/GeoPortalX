@@ -1,4 +1,4 @@
-import { Map, NavigationControl, ResourceType } from 'maplibre-gl';
+import { Map, NavigationControl } from 'maplibre-gl';
 
 import { isGeoPortalApiUrl } from '../api/client';
 
@@ -8,12 +8,9 @@ export function createMap(container: HTMLElement): Map {
     style: 'https://demotiles.maplibre.org/style.json',
     center: [118.78, 32.04],
     zoom: 8,
-    transformRequest: (url, resourceType) => ({
+    transformRequest: (url) => ({
       url,
-      credentials:
-        isGeoPortalApiUrl(url) && resourceType === ResourceType.Tile
-          ? 'include'
-          : 'same-origin',
+      credentials: isGeoPortalApiUrl(url) ? 'include' : 'same-origin',
     }),
   });
 
