@@ -46,7 +46,7 @@ _FORMAT_SPECS = {
         driver="CSV",
         extension="csv",
         content_type="text/csv; charset=utf-8",
-        layer_options=("GEOMETRY=AS_WKT",),
+        layer_options=(),
     ),
     VectorExportFormat.GEOPACKAGE: _FormatSpec(
         driver="GPKG",
@@ -133,13 +133,28 @@ def _build_command(
     if unknown:
         raise VectorExportError(f"Export fields are unavailable: {', '.join(unknown)}")
 
-    columns = ["gx_fid", *selected, layer.geometry_column]
-    column_sql = ", ".join(_quote_identifier(value) for value in columns)
+    fid = _quote_identifier("gx_fid")
+    geometry = _quote_identifier(layer.geometry_column)
+    selected_sql = [f"t.{fid}"]
+    selected_sql.extend(f"t.{_quote_identifier(value)}" for value in selected)
+    if export.export_format == VectorExportFormat.CSV:
+        selected_sql.append(f"ST_AsText(t.{geometry}) AS {_quote_identifier('WKT')}")
+    else:
+        selected_sql.append(f"t.{geometry}")
+
     table_sql = (
         f"{_quote_identifier(layer.db_schema)}."
         f"{_quote_identifier(layer.db_table)}"
     )
-    sql = f"SELECT {column_sql} FROM {table_sql}"
+    sql = f"SELECT {', '.join(selected_sql)} FROM {table_sql} AS t"
+    bbox_in_sql = export.export_format == VectorExportFormat.CSV and export.bbox
+    if bbox_in_sql:
+        envelope = _bbox_envelope_sql(export.bbox)
+        sql += (
+            f" WHERE t.{geometry} && {envelope}"
+            f" AND ST_Intersects(t.{geometry}, {envelope})"
+        )
+    sql += f" ORDER BY t.{fid} ASC"
 
     command = [
         str(settings.OGR2OGR_EXECUTABLE),
@@ -155,7 +170,7 @@ def _build_command(
     ]
     for option in spec.layer_options:
         command.extend(("-lco", option))
-    if export.bbox:
+    if export.bbox and not bbox_in_sql:
         command.extend(("-spat", *(str(value) for value in export.bbox)))
     command.extend((str(destination), "PG:"))
     return command
@@ -171,12 +186,16 @@ def _run_command(command: list[str], *, cancel_check: Callable[[], None]) -> Non
     )
     deadline = time.monotonic() + max(int(settings.VECTOR_EXPORT_TIMEOUT), 1)
     try:
-        while process.poll() is None:
+        while True:
             cancel_check()
-            if time.monotonic() >= deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 raise VectorExportError("Vector export timed out")
-            time.sleep(0.5)
-        stdout, stderr = process.communicate()
+            try:
+                stdout, stderr = process.communicate(timeout=min(0.5, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                continue
     except BaseException:
         process.terminate()
         try:
@@ -189,6 +208,13 @@ def _run_command(command: list[str], *, cancel_check: Callable[[], None]) -> Non
     if process.returncode != 0:
         message = (stderr or stdout or "ogr2ogr failed").strip()
         raise VectorExportError(message[-4000:])
+
+
+def _bbox_envelope_sql(bbox: list[float]) -> str:
+    if len(bbox) != 4:
+        raise VectorExportError("Export bbox must contain four coordinates")
+    values = ", ".join(format(float(value), ".15g") for value in bbox)
+    return f"ST_MakeEnvelope({values}, 4326)"
 
 
 def _postgres_environment() -> dict[str, str]:
