@@ -47,10 +47,11 @@ Status: implementation ready for review
 - [x] Minimal MapLibre vector preview rendering
 - [x] Permission-aware feature detail, keyset pagination, bbox query and identify
 - [x] Asynchronous GeoJSON/CSV/GeoPackage export and signed delivery
+- [x] Persistent simple, categorical and graduated default vector styles
+- [x] Interactive MapLibre preview panel, legend, identify popup and style controls
 - [ ] Dataset version replacement and rollback
 - [ ] Import reconciliation and orphan-table cleanup
-- [ ] Full dataset browser and preview controls
-- [ ] Editable default vector styling
+- [ ] Full multi-dataset browser and layer switching
 
 ## Milestone M3 — Raster publishing
 

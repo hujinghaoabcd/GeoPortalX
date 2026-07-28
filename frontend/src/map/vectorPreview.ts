@@ -1,6 +1,10 @@
 import type { LayerSpecification, Map } from 'maplibre-gl';
 
-import type { VectorLayerSourceResponse } from '../api/client';
+import type {
+  MapLibreLayerTemplate,
+  VectorLayerSourceResponse,
+  VectorStyleResponse,
+} from '../api/client';
 
 export type PreviewHandles = {
   sourceId: string;
@@ -10,37 +14,28 @@ export type PreviewHandles = {
 export function addVectorLayerPreview(
   map: Map,
   descriptor: VectorLayerSourceResponse,
+  style: VectorStyleResponse,
 ): PreviewHandles {
   const compactId = descriptor.layer_id.replaceAll('-', '');
   const sourceId = `gx-vector-${compactId}`;
-  const layerIds = [`${sourceId}-primary`, `${sourceId}-outline`];
+  const layerIds = style.maplibre_layers.map(
+    (_, index) => `${sourceId}-style-${style.style.revision}-${index}`,
+  );
 
-  removeVectorLayerPreview(map, { sourceId, layerIds });
+  removeVectorLayerPreview(map, {
+    sourceId,
+    layerIds: findPreviewLayerIds(map, sourceId),
+  });
   map.addSource(sourceId, descriptor.source);
 
-  const geometryType = descriptor.geometry_type.toUpperCase();
-  const primary = buildPrimaryLayer(
-    sourceId,
-    layerIds[0],
-    descriptor.source_layer,
-    geometryType,
-  );
-  map.addLayer(primary);
-
-  if (geometryType.includes('POLYGON')) {
-    map.addLayer({
-      id: layerIds[1],
-      type: 'line',
-      source: sourceId,
-      'source-layer': descriptor.source_layer,
-      paint: {
-        'line-color': '#183153',
-        'line-width': 1.25,
-      },
-    });
-  } else {
-    layerIds.pop();
-  }
+  style.maplibre_layers.forEach((template, index) => {
+    map.addLayer(buildLayerSpecification(
+      template,
+      layerIds[index],
+      sourceId,
+      descriptor.source_layer,
+    ));
+  });
 
   map.fitBounds(
     [
@@ -48,7 +43,7 @@ export function addVectorLayerPreview(
       [descriptor.bounds[2], descriptor.bounds[3]],
     ],
     {
-      padding: 48,
+      padding: 64,
       maxZoom: 13,
       duration: 700,
     },
@@ -67,46 +62,23 @@ export function removeVectorLayerPreview(map: Map, handles: PreviewHandles): voi
   }
 }
 
-function buildPrimaryLayer(
-  sourceId: string,
+function buildLayerSpecification(
+  template: MapLibreLayerTemplate,
   layerId: string,
+  sourceId: string,
   sourceLayer: string,
-  geometryType: string,
 ): LayerSpecification {
-  if (geometryType.includes('POINT')) {
-    return {
-      id: layerId,
-      type: 'circle',
-      source: sourceId,
-      'source-layer': sourceLayer,
-      paint: {
-        'circle-radius': 5,
-        'circle-color': '#1261a0',
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 1,
-      },
-    };
-  }
-  if (geometryType.includes('POLYGON')) {
-    return {
-      id: layerId,
-      type: 'fill',
-      source: sourceId,
-      'source-layer': sourceLayer,
-      paint: {
-        'fill-color': '#3f8fc5',
-        'fill-opacity': 0.42,
-      },
-    };
-  }
   return {
     id: layerId,
-    type: 'line',
+    type: template.type,
     source: sourceId,
     'source-layer': sourceLayer,
-    paint: {
-      'line-color': '#1261a0',
-      'line-width': 2.5,
-    },
-  };
+    paint: template.paint,
+  } as LayerSpecification;
+}
+
+function findPreviewLayerIds(map: Map, sourceId: string): string[] {
+  return (map.getStyle().layers ?? [])
+    .filter((layer) => layer.id.startsWith(`${sourceId}-style-`))
+    .map((layer) => layer.id);
 }

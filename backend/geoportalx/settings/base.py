@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "modules.object_storage",
     "modules.uploads",
     "modules.datasets",
+    "modules.vector_styles.apps.VectorStylesConfig",
     "modules.vector_exports",
 ]
 
