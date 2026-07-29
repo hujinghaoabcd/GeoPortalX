@@ -279,7 +279,7 @@ def test_source_permission_is_checked_on_save_and_rechecked_on_activation() -> N
 
 
 @pytest.mark.django_db
-def test_document_schema_rejects_duplicate_ids_and_invalid_binding() -> None:
+def test_document_schema_rejects_duplicate_ids_invalid_binding_and_nan() -> None:
     owner = _user("schema-owner")
     dataset, dataset_version = _ready_vector_dataset(owner, "schema-roads")
     duplicate = _document(dataset)
@@ -292,9 +292,14 @@ def test_document_schema_rejects_duplicate_ids_and_invalid_binding() -> None:
     with pytest.raises(ValueError, match="CURRENT layer bindings"):
         validate_map_document(invalid_binding)
 
+    non_finite = _document(dataset)
+    non_finite["layers"][0]["style"] = {"line-width": float("nan")}
+    with pytest.raises(ValueError, match="must be finite"):
+        validate_map_document(non_finite)
+
 
 @pytest.mark.django_db
-def test_map_api_creates_versions_and_hides_private_map(client) -> None:
+def test_map_api_versions_and_protects_public_document_source_details(client) -> None:
     owner = _user("map-api-owner")
     outsider = _user("map-api-outsider")
     dataset, _version = _ready_vector_dataset(owner, "api-roads")
@@ -333,10 +338,24 @@ def test_map_api_creates_versions_and_hides_private_map(client) -> None:
     assert version_response.status_code == 201
     assert version_response.json()["current_version_number"] == 2
 
+    Resource.objects.filter(pk=body["resource_id"]).update(visibility=Visibility.PUBLIC)
     client.force_login(outsider)
+    listing = client.get("/api/v1/maps/")
+    assert listing.status_code == 200
+    assert any(item["id"] == map_document_id for item in listing.json())
+
     hidden = client.get(f"/api/v1/maps/{map_document_id}")
     assert hidden.status_code == 404
-    assert not Resource.objects.filter(
-        id=body["resource_id"],
-        owner=outsider,
-    ).exists()
+
+    ResourcePermission.objects.create(
+        resource=dataset.resource,
+        subject_type=PermissionSubjectType.USER,
+        subject_id=outsider.id,
+        action=PermissionAction.VIEW,
+        granted_by=owner,
+    )
+    revealed = client.get(f"/api/v1/maps/{map_document_id}")
+    assert revealed.status_code == 200
+    assert revealed.json()["current_document"]["layers"][0]["dataset_id"] == str(
+        dataset.id
+    )
