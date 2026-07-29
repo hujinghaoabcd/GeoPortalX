@@ -60,22 +60,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Ensure GeoDjango system libraries
-        timeout-minutes: 6
+        timeout-minutes: 8
         run: |
           set -euo pipefail
-          if command -v gdal-config >/dev/null 2>&1 \
+          if command -v ogr2ogr >/dev/null 2>&1 \
+            && ldconfig -p | grep -q 'libgdal' \
             && ldconfig -p | grep -q 'libgeos_c'; then
-            gdal-config --version
+            ogr2ogr --version
             exit 0
           fi
-          sudo timeout 120s apt-get update \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=20
-          sudo timeout 180s apt-get install \
+          export DEBIAN_FRONTEND=noninteractive
+          sudo timeout 180s apt-get update \
+            -o Acquire::Retries=5 \
+            -o Acquire::http::Timeout=30 \
+            -o Acquire::https::Timeout=30
+          sudo timeout 300s apt-get install \
             --yes \
             --no-install-recommends \
-            gdal-bin libgdal-dev libgeos-dev libproj-dev
-          gdal-config --version
+            gdal-bin
+          ogr2ogr --version
+          ldconfig -p | grep 'libgdal'
+          ldconfig -p | grep 'libgeos_c'
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.13"

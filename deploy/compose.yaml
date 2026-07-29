@@ -62,6 +62,9 @@ services:
       context: ../backend
     env_file:
       - ../.env
+    environment:
+      MARTIN_INTERNAL_URL: http://martin:3000
+      TITILER_INTERNAL_URL: http://titiler:8000
     depends_on:
       postgis:
         condition: service_healthy
@@ -80,6 +83,9 @@ services:
     command: celery -A geoportalx worker -l INFO -Q import,vector,raster,processing,catalog,system
     env_file:
       - ../.env
+    environment:
+      MARTIN_INTERNAL_URL: http://martin:3000
+      TITILER_INTERNAL_URL: http://titiler:8000
     depends_on:
       postgis:
         condition: service_healthy
@@ -116,18 +122,38 @@ services:
       - ./martin.yaml:/config/martin.yaml:ro
 
   titiler:
-    image: ghcr.io/developmentseed/titiler:latest
+    image: ghcr.io/developmentseed/titiler:2.0.2
+    command:
+      - uvicorn
+      - titiler.application.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "1"
     environment:
       AWS_ACCESS_KEY_ID: geoportalx
       AWS_SECRET_ACCESS_KEY: change-me-now
-      AWS_S3_ENDPOINT: http://minio:9000
+      AWS_REGION: us-east-1
+      AWS_S3_ENDPOINT: minio:9000
       AWS_HTTPS: "NO"
       AWS_VIRTUAL_HOSTING: "FALSE"
+      GDAL_CACHEMAX: "256"
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_INGESTED_BYTES_AT_OPEN: "32768"
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      GDAL_HTTP_MULTIPLEX: "YES"
+      GDAL_HTTP_VERSION: "2"
+      VSI_CACHE: "TRUE"
+      VSI_CACHE_SIZE: "536870912"
+      CPL_VSIL_CURL_ALLOWED_EXTENSIONS: .tif,.tiff,.TIF,.TIFF
+      RIO_TILER_MAX_THREADS: "4"
     depends_on:
-      minio:
-        condition: service_healthy
-    ports:
-      - "8001:8000"
+      storage-init:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
 
   frontend:
     build:

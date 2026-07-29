@@ -56,12 +56,12 @@ Status: implementation ready for review
 ## Milestone M3 — Raster publishing
 
 - [x] GeoTIFF inspection
-- [ ] COG conversion
-- [ ] Overviews and statistics
-- [ ] MinIO/S3 publication
-- [ ] TiTiler integration
-- [ ] MapLibre raster rendering
-- [ ] Raster point query and render settings
+- [x] COG conversion
+- [x] Overviews and statistics
+- [x] MinIO/S3 publication
+- [x] TiTiler integration
+- [x] MapLibre raster rendering
+- [x] Raster point query and render settings
 
 ## Milestone M4 — Map Studio
 

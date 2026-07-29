@@ -93,6 +93,79 @@ export type VectorIdentifyResponse = {
   dataset_version_id: string;
 };
 
+export type RasterSourceResponse = {
+  source: {
+    type: 'raster';
+    tiles: string[];
+    tileSize: number;
+    minzoom: number;
+    maxzoom: number;
+    bounds: [number, number, number, number];
+  };
+  bounds: [number, number, number, number];
+  dataset_id: string;
+  dataset_version_id: string;
+  publication_id: string;
+  width: number;
+  height: number;
+  band_count: number;
+  crs: string;
+  epsg: number | null;
+  opacity: number;
+  revision: number;
+};
+
+export type RasterBand = {
+  index: number;
+  dtype: string;
+  nodata: number | null;
+  description: string | null;
+  unit: string | null;
+};
+
+export type RasterBandStatistics = {
+  band: number;
+  minimum: number | null;
+  maximum: number | null;
+  mean: number | null;
+  standard_deviation: number | null;
+  percentile_2: number | null;
+  percentile_98: number | null;
+  valid_percent: number;
+};
+
+export type RasterRenderingResponse = {
+  dataset_id: string;
+  publication_id: string;
+  resource_id: string;
+  resource_title: string;
+  mode: 'SINGLE_BAND' | 'RGB';
+  bands: number[];
+  rescale: number[][];
+  colormap_name: string | null;
+  resampling: 'nearest' | 'bilinear' | 'cubic';
+  opacity: number;
+  revision: number;
+  available_bands: RasterBand[];
+  statistics: RasterBandStatistics[];
+  allowed_colormaps: string[];
+  allowed_resampling: string[];
+  can_edit: boolean;
+};
+
+export type RasterRenderingUpdate = Pick<
+  RasterRenderingResponse,
+  'mode' | 'bands' | 'rescale' | 'colormap_name' | 'resampling' | 'opacity'
+>;
+
+export type RasterPointResponse = {
+  dataset_id: string;
+  dataset_version_id: string;
+  publication_id: string;
+  query_point: [number, number];
+  result: Record<string, unknown>;
+};
+
 export async function fetchHealth(): Promise<HealthResponse> {
   return fetchJson<HealthResponse>(`${apiBaseUrl}/api/v1/health`);
 }
@@ -119,14 +192,7 @@ export async function updateVectorLayerStyle(
 ): Promise<VectorStyleResponse> {
   return fetchJson<VectorStyleResponse>(
     `${apiBaseUrl}/api/v1/vector-layers/${encodeURIComponent(layerId)}/style`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': readCookie('csrftoken') ?? '',
-      },
-      body: JSON.stringify(payload),
-    },
+    mutationInit('PUT', payload),
   );
 }
 
@@ -147,6 +213,44 @@ export async function identifyVectorLayer(
   );
 }
 
+export async function fetchRasterSource(datasetId: string): Promise<RasterSourceResponse> {
+  return fetchJson<RasterSourceResponse>(
+    `${apiBaseUrl}/api/v1/raster-datasets/${encodeURIComponent(datasetId)}/source`,
+  );
+}
+
+export async function fetchRasterRendering(
+  datasetId: string,
+): Promise<RasterRenderingResponse> {
+  return fetchJson<RasterRenderingResponse>(
+    `${apiBaseUrl}/api/v1/raster-datasets/${encodeURIComponent(datasetId)}/rendering`,
+  );
+}
+
+export async function updateRasterRendering(
+  datasetId: string,
+  payload: RasterRenderingUpdate,
+): Promise<RasterRenderingResponse> {
+  return fetchJson<RasterRenderingResponse>(
+    `${apiBaseUrl}/api/v1/raster-datasets/${encodeURIComponent(datasetId)}/rendering`,
+    mutationInit('PUT', payload),
+  );
+}
+
+export async function identifyRasterDataset(
+  datasetId: string,
+  longitude: number,
+  latitude: number,
+): Promise<RasterPointResponse> {
+  const query = new URLSearchParams({
+    longitude: String(longitude),
+    latitude: String(latitude),
+  });
+  return fetchJson<RasterPointResponse>(
+    `${apiBaseUrl}/api/v1/raster-datasets/${encodeURIComponent(datasetId)}/point?${query}`,
+  );
+}
+
 export function isGeoPortalApiUrl(url: string): boolean {
   return url.startsWith(`${apiBaseUrl}/api/`);
 }
@@ -158,6 +262,17 @@ async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
     throw new Error(message || `Request failed: ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+function mutationInit(method: string, payload: unknown): RequestInit {
+  return {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': readCookie('csrftoken') ?? '',
+    },
+    body: JSON.stringify(payload),
+  };
 }
 
 function readCookie(name: string): string | null {

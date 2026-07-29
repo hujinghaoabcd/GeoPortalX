@@ -6,6 +6,7 @@ from ninja import NinjaAPI, Schema
 from modules.datasets.api import router as datasets_router
 from modules.jobs.api import router as jobs_router
 from modules.organizations.api import router as organizations_router
+from modules.raster_tiles.api import router as raster_tiles_router
 from modules.resources.api import router as resources_router
 from modules.uploads.api import router as uploads_router
 from modules.vector_exports.api import router as vector_exports_router
@@ -43,3 +44,4 @@ api.add_router("/datasets", datasets_router)
 api.add_router("/vector-layers", vector_tiles_router)
 api.add_router("/vector-layers", vector_styles_router)
 api.add_router("/vector-exports", vector_exports_router)
+api.add_router("/raster-datasets", raster_tiles_router)
