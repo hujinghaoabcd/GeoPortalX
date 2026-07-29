@@ -26,7 +26,7 @@ from modules.permissions.services import has_resource_permission
 from modules.resources.models import LifecycleStatus, Resource, ResourceType, Visibility
 from modules.resources.services import create_resource
 
-from .document_schema import MapDocumentSchema, MapLayerDocument, validate_map_document
+from .document_schema import MapDocumentSchema, validate_map_document
 from .models import (
     MapDocument,
     MapDocumentVersion,
@@ -74,11 +74,26 @@ def _validate_source_references(
             "current_version",
         )
     }
-    missing = dataset_ids.difference(datasets)
-    if missing:
+    if dataset_ids.difference(datasets):
         raise ValueError("One or more referenced datasets do not exist")
 
+    pinned_ids = {
+        layer.dataset_version_id
+        for layer in parsed.layers
+        if layer.binding == MapLayerBindingMode.PINNED
+        and layer.dataset_version_id is not None
+    }
+    pinned_versions = {
+        version.id: version
+        for version in DatasetVersion.objects.filter(id__in=pinned_ids)
+    }
+    if pinned_ids.difference(pinned_versions):
+        raise ValueError("One or more pinned dataset versions do not exist")
+
     resolved_versions: dict[str, DatasetVersion] = {}
+    vector_requirements: set[tuple[UUID, UUID, str]] = set()
+    raster_requirements: set[tuple[UUID, UUID]] = set()
+
     for layer in parsed.layers:
         dataset = datasets[layer.dataset_id]
         if not has_resource_permission(actor, dataset.resource, PermissionAction.VIEW):
@@ -90,32 +105,69 @@ def _validate_source_references(
         if dataset.kind != expected_kind:
             raise ValueError(f"Layer {layer.id} kind does not match its dataset")
 
-        source_version = _resolve_source_version(dataset=dataset, layer=layer)
+        if layer.binding == MapLayerBindingMode.CURRENT:
+            source_version = dataset.current_version
+            if source_version is None:
+                raise ValueError(f"Dataset {dataset.id} has no active version")
+        else:
+            source_version = pinned_versions[layer.dataset_version_id]
+            if source_version.dataset_id != dataset.id:
+                raise ValueError(
+                    f"Layer {layer.id} references a version from another dataset"
+                )
         if source_version.status != DatasetVersionStatus.READY:
-            raise ValueError(f"Layer {layer.id} references a dataset version that is not ready")
+            raise ValueError(
+                f"Layer {layer.id} references a dataset version that is not ready"
+            )
 
+        resolved_versions[layer.id] = source_version
         if layer.kind == "VECTOR":
-            available = VectorLayer.objects.filter(
-                vector_dataset__dataset=dataset,
-                version=source_version,
-                source_layer_name=layer.source_layer_name,
-                status=VectorLayerStatus.READY,
-            ).exists()
-            if not available:
+            vector_requirements.add(
+                (
+                    dataset.id,
+                    source_version.id,
+                    layer.source_layer_name or "",
+                )
+            )
+        else:
+            raster_requirements.add((dataset.id, source_version.id))
+
+    vector_available = set(
+        VectorLayer.objects.filter(
+            vector_dataset__dataset_id__in={item[0] for item in vector_requirements},
+            version_id__in={item[1] for item in vector_requirements},
+            source_layer_name__in={item[2] for item in vector_requirements},
+            status=VectorLayerStatus.READY,
+        ).values_list(
+            "vector_dataset__dataset_id",
+            "version_id",
+            "source_layer_name",
+        )
+    )
+    raster_available = set(
+        RasterPublication.objects.filter(
+            raster_dataset__dataset_id__in={item[0] for item in raster_requirements},
+            version_id__in={item[1] for item in raster_requirements},
+            status=RasterPublicationStatus.READY,
+        ).values_list("raster_dataset__dataset_id", "version_id")
+    )
+
+    for layer in parsed.layers:
+        source_version = resolved_versions[layer.id]
+        if layer.kind == "VECTOR":
+            requirement = (
+                layer.dataset_id,
+                source_version.id,
+                layer.source_layer_name or "",
+            )
+            if requirement not in vector_available:
                 raise ValueError(
                     f"Layer {layer.id} does not resolve to a ready vector layer"
                 )
-        else:
-            available = RasterPublication.objects.filter(
-                raster_dataset__dataset=dataset,
-                version=source_version,
-                status=RasterPublicationStatus.READY,
-            ).exists()
-            if not available:
-                raise ValueError(
-                    f"Layer {layer.id} does not resolve to a ready raster publication"
-                )
-        resolved_versions[layer.id] = source_version
+        elif (layer.dataset_id, source_version.id) not in raster_available:
+            raise ValueError(
+                f"Layer {layer.id} does not resolve to a ready raster publication"
+            )
 
     return resolved_versions
 
@@ -129,25 +181,6 @@ def validate_map_version_sources(
 
     parsed, _canonical = validate_map_document(version.document)
     _validate_source_references(actor=actor, parsed=parsed)
-
-
-def _resolve_source_version(
-    *,
-    dataset: Dataset,
-    layer: MapLayerDocument,
-) -> DatasetVersion:
-    if layer.binding == MapLayerBindingMode.CURRENT:
-        if dataset.current_version is None:
-            raise ValueError(f"Dataset {dataset.id} has no active version")
-        return dataset.current_version
-
-    version = DatasetVersion.objects.filter(
-        pk=layer.dataset_version_id,
-        dataset=dataset,
-    ).first()
-    if version is None:
-        raise ValueError(f"Layer {layer.id} references an unknown dataset version")
-    return version
 
 
 def _create_version(
