@@ -65,14 +65,17 @@ Status: implementation ready for review
 
 ## Milestone M4 — Map Studio
 
-- [ ] GeoPortalX Map Document schema
+- [x] Persistent Resource-backed MapDocument and immutable MapDocumentVersion records
+- [x] Validated bounded GeoPortalX Map Document v1 schema
+- [x] Ordered current/pinned vector and raster layer references
+- [x] Transactional save, activation history and rollback
+- [ ] Permission-safe source descriptors for current and pinned references
 - [ ] MapLibre source/layer lifecycle
-- [ ] Layer tree and grouping
-- [ ] Style editor
+- [ ] Multi-dataset browser, layer tree and grouping
+- [ ] Map-level style editor and overrides
 - [ ] Labels, legends, filters and popups
 - [ ] Drawing, measure and identify
-- [ ] Save, version, publish and share
-- [ ] Public map viewer
+- [ ] Publish, share and public map viewer
 
 ## Milestone M5 — Catalog and standards
 

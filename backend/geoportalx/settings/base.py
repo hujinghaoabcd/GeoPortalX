@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "modules.datasets",
     "modules.vector_styles.apps.VectorStylesConfig",
     "modules.vector_exports",
+    "modules.maps",
 ]
 
 MIDDLEWARE = [
