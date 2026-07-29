@@ -205,14 +205,14 @@ def _reload_map(map_document_id: UUID) -> MapDocument:
 def _serialize_map(map_document: MapDocument) -> dict[str, Any]:
     resource = map_document.resource
     current = map_document.current_version
-    versions = (
-        list(map_document.versions.all())
-        if hasattr(map_document, "_prefetched_objects_cache")
-        else None
-    )
-    version_count = (
-        len(versions) if versions is not None else map_document.versions.count()
-    )
+    annotated_count = getattr(map_document, "version_count", None)
+    prefetched = getattr(map_document, "_prefetched_objects_cache", {})
+    if annotated_count is not None:
+        version_count = int(annotated_count)
+    elif "versions" in prefetched:
+        version_count = len(prefetched["versions"])
+    else:
+        version_count = map_document.versions.count()
     return {
         "id": map_document.id,
         "resource_id": resource.id,
