@@ -1,4 +1,5 @@
 import json
+import math
 import re
 from typing import Any, Literal, Self
 from uuid import UUID
@@ -14,7 +15,15 @@ _LAYER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 def _validate_json_value(value: Any, *, depth: int = 0) -> Any:
     if depth > 8:
         raise ValueError("Map document JSON nesting exceeds the supported depth")
-    if value is None or isinstance(value, bool | int | float):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if abs(value) > 10**15:
+            raise ValueError("Map document integers exceed the supported range")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Map document numbers must be finite")
         return value
     if isinstance(value, str):
         if len(value) > 4096:
@@ -37,7 +46,7 @@ def _validate_json_value(value: Any, *, depth: int = 0) -> Any:
 
 
 class MapViewDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     center: tuple[float, float] = (0.0, 0.0)
     zoom: float = Field(default=2.0, ge=0.0, le=24.0)
@@ -56,7 +65,11 @@ class MapViewDocument(BaseModel):
 
 
 class MapLayerDocument(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        allow_inf_nan=False,
+    )
 
     id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=255)
@@ -117,7 +130,7 @@ class MapLayerDocument(BaseModel):
 
 
 class MapDocumentSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     schema_version: Literal[1] = MAP_DOCUMENT_SCHEMA_VERSION
     view: MapViewDocument = Field(default_factory=MapViewDocument)
@@ -151,6 +164,7 @@ def validate_map_document(document: dict[str, Any]) -> tuple[MapDocumentSchema, 
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
     if len(encoded) > MAP_DOCUMENT_MAX_BYTES:
         raise ValueError(
