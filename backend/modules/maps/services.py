@@ -49,6 +49,7 @@ def _document_checksum(document: dict[str, Any]) -> str:
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -117,6 +118,17 @@ def _validate_source_references(
         resolved_versions[layer.id] = source_version
 
     return resolved_versions
+
+
+def validate_map_version_sources(
+    *,
+    actor: User,
+    version: MapDocumentVersion,
+) -> None:
+    """Recheck every source before disclosing or activating a map snapshot."""
+
+    parsed, _canonical = validate_map_document(version.document)
+    _validate_source_references(actor=actor, parsed=parsed)
 
 
 def _resolve_source_version(
@@ -219,7 +231,11 @@ def _activate_version(
     map_document.save(update_fields=("current_version", "updated_at"))
 
     resource = Resource.objects.get(pk=map_document.resource_id)
-    if resource.lifecycle_status != LifecycleStatus.READY:
+    if resource.lifecycle_status in {
+        LifecycleStatus.DRAFT,
+        LifecycleStatus.PROCESSING,
+        LifecycleStatus.FAILED,
+    }:
         resource.lifecycle_status = LifecycleStatus.READY
         resource.save(update_fields=("lifecycle_status", "updated_at"))
 
@@ -231,6 +247,20 @@ def _activate_version(
         activated_by=actor,
         note=note,
     )
+
+
+def _locked_editable_map(*, actor: User, map_document_id: UUID) -> MapDocument:
+    map_document = MapDocument.objects.select_for_update().filter(
+        pk=map_document_id,
+    ).first()
+    if map_document is None:
+        raise ValueError("Map document not found")
+    resource = Resource.objects.get(pk=map_document.resource_id)
+    if not has_resource_permission(actor, resource, PermissionAction.EDIT):
+        raise PermissionError("Map document not found")
+    if resource.lifecycle_status == LifecycleStatus.ARCHIVED:
+        raise ValueError("Archived map documents cannot be modified")
+    return map_document
 
 
 @transaction.atomic
@@ -286,15 +316,10 @@ def create_map_document_version(
     note: str = "",
     activate: bool = True,
 ) -> MapDocumentWriteResult:
-    map_document = MapDocument.objects.select_for_update().filter(
-        pk=map_document_id,
-    ).first()
-    if map_document is None:
-        raise ValueError("Map document not found")
-    resource = Resource.objects.get(pk=map_document.resource_id)
-    if not has_resource_permission(actor, resource, PermissionAction.EDIT):
-        raise PermissionError("Map document not found")
-
+    map_document = _locked_editable_map(
+        actor=actor,
+        map_document_id=map_document_id,
+    )
     parsed, canonical = validate_map_document(document)
     resolved_versions = _validate_source_references(actor=actor, parsed=parsed)
     normalized_note = _validate_note(note)
@@ -325,15 +350,10 @@ def activate_map_document_version(
     version_id: UUID,
     note: str = "",
 ) -> MapDocumentVersion:
-    map_document = MapDocument.objects.select_for_update().filter(
-        pk=map_document_id,
-    ).first()
-    if map_document is None:
-        raise ValueError("Map document not found")
-    resource = Resource.objects.get(pk=map_document.resource_id)
-    if not has_resource_permission(actor, resource, PermissionAction.EDIT):
-        raise PermissionError("Map document not found")
-
+    map_document = _locked_editable_map(
+        actor=actor,
+        map_document_id=map_document_id,
+    )
     version = MapDocumentVersion.objects.filter(
         pk=version_id,
         map_document=map_document,
@@ -341,8 +361,7 @@ def activate_map_document_version(
     if version is None:
         raise ValueError("Map version not found")
 
-    parsed, _canonical = validate_map_document(version.document)
-    _validate_source_references(actor=actor, parsed=parsed)
+    validate_map_version_sources(actor=actor, version=version)
     normalized_note = _validate_note(note)
     current = (
         MapDocumentVersion.objects.filter(pk=map_document.current_version_id).first()
