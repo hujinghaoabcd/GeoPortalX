@@ -8,15 +8,28 @@ from .models import (
 )
 
 
+class ServiceManagedAdmin(admin.ModelAdmin):
+    """Expose service-managed records for inspection without bypassing invariants."""
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+    def get_readonly_fields(self, request, obj=None) -> tuple[str, ...]:
+        return tuple(field.name for field in self.model._meta.fields)
+
+
 @admin.register(MapDocument)
-class MapDocumentAdmin(admin.ModelAdmin):
+class MapDocumentAdmin(ServiceManagedAdmin):
     list_display = ("id", "resource", "current_version", "updated_at")
     search_fields = ("resource__title", "resource__slug")
     list_select_related = ("resource", "current_version")
 
 
 @admin.register(MapDocumentVersion)
-class MapDocumentVersionAdmin(admin.ModelAdmin):
+class MapDocumentVersionAdmin(ServiceManagedAdmin):
     list_display = (
         "id",
         "map_document",
@@ -30,7 +43,7 @@ class MapDocumentVersionAdmin(admin.ModelAdmin):
 
 
 @admin.register(MapLayerReference)
-class MapLayerReferenceAdmin(admin.ModelAdmin):
+class MapLayerReferenceAdmin(ServiceManagedAdmin):
     list_display = (
         "id",
         "version",
@@ -46,7 +59,7 @@ class MapLayerReferenceAdmin(admin.ModelAdmin):
 
 
 @admin.register(MapDocumentVersionActivation)
-class MapDocumentVersionActivationAdmin(admin.ModelAdmin):
+class MapDocumentVersionActivationAdmin(ServiceManagedAdmin):
     list_display = (
         "id",
         "map_document",
