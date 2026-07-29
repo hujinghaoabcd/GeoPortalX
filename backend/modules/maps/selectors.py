@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 
 from modules.accounts.models import User
 from modules.permissions.models import PermissionAction
@@ -21,6 +21,7 @@ def map_documents_accessible_to(
     return (
         MapDocument.objects.filter(resource_id__in=resource_ids)
         .select_related("resource", "current_version")
+        .annotate(version_count=Count("versions", distinct=True))
         .order_by("-updated_at")
     )
 
