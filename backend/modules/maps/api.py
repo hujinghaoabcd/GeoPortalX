@@ -17,6 +17,7 @@ from .services import (
     activate_map_document_version,
     create_map_document,
     create_map_document_version,
+    validate_map_version_sources,
 )
 
 router = Router(auth=SessionAuth(), tags=["maps"])
@@ -90,7 +91,7 @@ def create_map(request, payload: MapCreateIn):
         raise HttpError(403, str(exc)) from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
-    return 201, _serialize_map_detail(_reload_map(result.map_document.id))
+    return 201, _accessible_map_detail(request.auth, result.map_document.id)
 
 
 @router.get("/{map_document_id}", response=MapDetailOut)
@@ -102,7 +103,7 @@ def get_map(request, map_document_id: UUID):
     )
     if map_document is None:
         raise HttpError(404, "Map document not found")
-    return _serialize_map_detail(_reload_map(map_document.id))
+    return _accessible_map_detail(request.auth, map_document.id)
 
 
 @router.post("/{map_document_id}/versions", response={201: MapDetailOut})
@@ -130,7 +131,7 @@ def create_map_version(
         raise HttpError(404, "Map document not found") from exc
     except ValueError as exc:
         raise HttpError(400, str(exc)) from exc
-    return 201, _serialize_map_detail(_reload_map(map_document.id))
+    return 201, _accessible_map_detail(request.auth, map_document.id)
 
 
 @router.post(
@@ -161,7 +162,7 @@ def activate_map_version(
         raise HttpError(404, "Map document not found") from exc
     except ValueError as exc:
         raise HttpError(409, str(exc)) from exc
-    return _serialize_map_detail(_reload_map(map_document.id))
+    return _accessible_map_detail(request.auth, map_document.id)
 
 
 def _organization(organization_id: UUID | None) -> Organization | None:
@@ -171,6 +172,19 @@ def _organization(organization_id: UUID | None) -> Organization | None:
     if organization is None:
         raise HttpError(404, "Organization not found")
     return organization
+
+
+def _accessible_map_detail(actor, map_document_id: UUID) -> dict[str, Any]:
+    map_document = _reload_map(map_document_id)
+    if map_document.current_version is not None:
+        try:
+            validate_map_version_sources(
+                actor=actor,
+                version=map_document.current_version,
+            )
+        except (PermissionError, ValueError) as exc:
+            raise HttpError(404, "Map document not found") from exc
+    return _serialize_map_detail(map_document)
 
 
 def _reload_map(map_document_id: UUID) -> MapDocument:
