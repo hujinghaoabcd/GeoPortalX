@@ -11,7 +11,7 @@ from modules.organizations.models import Organization
 from modules.permissions.models import PermissionAction
 from modules.resources.models import Visibility
 
-from .models import MapDocument, MapDocumentVersion
+from .models import MapDocument
 from .selectors import map_document_accessible_to, map_documents_accessible_to
 from .services import (
     activate_map_document_version,
@@ -66,7 +66,10 @@ class MapDetailOut(MapOut):
 
 @router.get("/", response=list[MapOut])
 def list_maps(request):
-    return [_serialize_map(map_document) for map_document in map_documents_accessible_to(request.auth)]
+    return [
+        _serialize_map(map_document)
+        for map_document in map_documents_accessible_to(request.auth)
+    ]
 
 
 @router.post("/", response={201: MapDetailOut})
@@ -188,7 +191,14 @@ def _reload_map(map_document_id: UUID) -> MapDocument:
 def _serialize_map(map_document: MapDocument) -> dict[str, Any]:
     resource = map_document.resource
     current = map_document.current_version
-    versions = list(map_document.versions.all()) if hasattr(map_document, "_prefetched_objects_cache") else None
+    versions = (
+        list(map_document.versions.all())
+        if hasattr(map_document, "_prefetched_objects_cache")
+        else None
+    )
+    version_count = (
+        len(versions) if versions is not None else map_document.versions.count()
+    )
     return {
         "id": map_document.id,
         "resource_id": resource.id,
@@ -199,7 +209,7 @@ def _serialize_map(map_document: MapDocument) -> dict[str, Any]:
         "lifecycle_status": resource.lifecycle_status,
         "current_version_id": map_document.current_version_id,
         "current_version_number": current.version_number if current else None,
-        "version_count": len(versions) if versions is not None else map_document.versions.count(),
+        "version_count": version_count,
         "created_at": map_document.created_at,
         "updated_at": map_document.updated_at,
     }
@@ -220,7 +230,9 @@ def _serialize_map_detail(map_document: MapDocument) -> dict[str, Any]:
             "note": version.note,
             "is_active": map_document.current_version_id == version.id,
             "created_at": version.created_at.isoformat(),
-            "activated_at": version.activated_at.isoformat() if version.activated_at else None,
+            "activated_at": (
+                version.activated_at.isoformat() if version.activated_at else None
+            ),
             "deactivated_at": (
                 version.deactivated_at.isoformat() if version.deactivated_at else None
             ),
