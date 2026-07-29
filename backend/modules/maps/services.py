@@ -24,6 +24,7 @@ from modules.organizations.models import Organization
 from modules.permissions.models import PermissionAction
 from modules.permissions.services import has_resource_permission
 from modules.resources.models import LifecycleStatus, Resource, ResourceType, Visibility
+from modules.resources.selectors import resources_accessible_to
 from modules.resources.services import create_resource
 
 from .document_schema import MapDocumentSchema, validate_map_document
@@ -77,6 +78,15 @@ def _validate_source_references(
     if dataset_ids.difference(datasets):
         raise ValueError("One or more referenced datasets do not exist")
 
+    source_resource_ids = {dataset.resource_id for dataset in datasets.values()}
+    accessible_resource_ids = set(
+        resources_accessible_to(actor, PermissionAction.VIEW)
+        .filter(id__in=source_resource_ids)
+        .values_list("id", flat=True)
+    )
+    if source_resource_ids.difference(accessible_resource_ids):
+        raise PermissionError("Map layer source is not accessible")
+
     pinned_ids = {
         layer.dataset_version_id
         for layer in parsed.layers
@@ -96,8 +106,6 @@ def _validate_source_references(
 
     for layer in parsed.layers:
         dataset = datasets[layer.dataset_id]
-        if not has_resource_permission(actor, dataset.resource, PermissionAction.VIEW):
-            raise PermissionError("Map layer source is not accessible")
         if dataset.status != DatasetStatus.READY:
             raise ValueError(f"Dataset {dataset.id} is not ready")
 
